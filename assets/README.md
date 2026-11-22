@@ -32,7 +32,7 @@ Files in `custom/` belong to the user. Claude never adds, modifies, renames or d
 ## Small resolver, not a modding system
 
 - Introduce a **single asset-resolution entry point** (for example `get_texture("player")`, `get_audio("footstep")`) when the first approved feature needs art or sound. Callers do not hardcode asset paths.
-- **Supported override formats:** **PNG** for graphics; **OGG Vorbis** for audio. **WAV** only if the pinned Godot 4.x version supports runtime WAV loading — check that version's class reference; do not hand-write a WAV parser.
+- **Supported override formats:** **PNG** for graphics; **OGG Vorbis, WAV and MP3** for audio (all three load at runtime in the pinned Godot 4.7.x; MP3 added at the user's request for Prototype 002). An audio override is tried in the order `.ogg`, `.wav`, `.mp3`. The audio resolver is `src/audio/audio_library.gd`; recognised sound names are listed in `docs/SOUNDS.md`.
 - Load external files with Godot runtime loading (e.g. `Image.load_from_file` + `ImageTexture.create_from_image`, `AudioStreamOggVorbis.load_from_file`), not `load()`/`ResourceLoader`. Use `FileAccess.file_exists()` for overrides and `ResourceLoader.exists()` for packaged fallbacks.
 - **Valid** means: the file exists, has a supported extension and decodes successfully. Further checks (dimensions, duration, etc.) require approval. On an invalid override, emit a warning (`push_warning`) and use the fallback; never crash.
 - **No hot-reload or file watching.** Each asset is resolved once (at startup or first use) and cached for the session. **Override changes take effect after restarting the game.**

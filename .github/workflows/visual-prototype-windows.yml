@@ -1,4 +1,5 @@
-# Builds the portable Windows x64 package of Visual Prototype 001 (Silent Sea).
+# Builds the portable Windows x64 package of the Silent Sea prototypes
+# (currently Prototype 002 "First Contact").
 # Approved by the user for this prototype; produces a downloadable workflow
 # artifact only (no release publishing).
 name: Silent Sea · Windows x64 build
@@ -54,13 +55,17 @@ jobs:
           mkdir -p build/SilentSea
           ~/godot/godot --headless --path . --export-release "Windows Desktop" build/SilentSea/SilentSea.exe
           test -s build/SilentSea/SilentSea.exe
-          cp docs/VISUAL_PROTOTYPE_001.md build/SilentSea/README.md
-          ls -la build/SilentSea
+          cp docs/PROTOTYPE_002.md build/SilentSea/README.md
+          cp docs/SOUNDS.md build/SilentSea/SOUNDS.md
+          # External folder for user sound overrides (read at startup, no rebuild).
+          mkdir -p build/SilentSea/custom/audio
+          cp docs/SOUNDS.md build/SilentSea/custom/audio/PUT_YOUR_SOUNDS_HERE.txt
+          ls -laR build/SilentSea
 
       - name: Upload portable build
         uses: actions/upload-artifact@v4
         with:
-          name: SilentSea-VisualPrototype001-windows-x64
+          name: SilentSea-Prototype002-FirstContact-windows-x64
           path: build/SilentSea
           if-no-files-found: error
           retention-days: 30

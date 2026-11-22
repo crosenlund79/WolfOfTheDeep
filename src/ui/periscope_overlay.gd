@@ -11,6 +11,8 @@ var ocean: Ocean
 var ships: Array[Node3D] = []
 var weather: Weather
 var encounter: Encounter
+## ColorRect provided by main (a sibling below this overlay) for the feed effect.
+var post_rect: ColorRect
 var mast_submerged := 0.0
 var _away_t := 0.0
 var _blackout := 0.0
@@ -29,16 +31,13 @@ var _was_submerged := true
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_post = ColorRect.new()
-	_post.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_post.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_post = post_rect
 	_post_mat = ShaderMaterial.new()
 	_post_mat.shader = load("res://src/ui/periscope_post.gdshader")
 	_post.material = _post_mat
-	add_child(_post)
-	_post.show_behind_parent = true
+	_post.visible = visible
 	visibility_changed.connect(_on_visibility)
 
 
@@ -48,6 +47,7 @@ func on_enter() -> void:
 
 
 func _on_visibility() -> void:
+	_post.visible = visible
 	if not visible:
 		RenderingServer.global_shader_parameter_set("thermal_mode", 0.0)
 		if weather:

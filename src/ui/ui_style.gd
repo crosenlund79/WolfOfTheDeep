@@ -50,3 +50,16 @@ static func label(text: String, size: int, color: Color, font: Font = null) -> L
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", color)
 	return l
+
+
+## Anchor a control to a point of its parent (0..1 on each axis) and place it
+## with pixel offsets from that point (works for every screen size).
+static func place(c: Control, anchor: Vector2, offset: Vector2, size: Vector2) -> void:
+	c.anchor_left = anchor.x
+	c.anchor_right = anchor.x
+	c.anchor_top = anchor.y
+	c.anchor_bottom = anchor.y
+	c.offset_left = offset.x
+	c.offset_top = offset.y
+	c.offset_right = offset.x + size.x
+	c.offset_bottom = offset.y + size.y

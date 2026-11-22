@@ -31,6 +31,7 @@ var _focus := Node3D.new()
 var _capture: Array = []
 var _capture_frames := 0
 var _capture_dir := ""
+var _capture_index := 0
 var _lens: ColorRect
 var _lens_mat: ShaderMaterial
 var _snow: GPUParticles3D
@@ -113,13 +114,13 @@ func _ready() -> void:
 	encounter.ships = ships
 	add_child(encounter)
 	encounter.setup(self, ships[0] as SurfaceShip)
-	encounter.reset_target.call_deferred()
+	encounter.reset_target()
 
 	var ui := CanvasLayer.new()
 	ui.name = "UI"
 	add_child(ui)
 	_lens = ColorRect.new()
-	_lens.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_lens.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_lens.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_lens_mat = ShaderMaterial.new()
 	_lens_mat.shader = load("res://src/fx/lens_fx.gdshader")
@@ -127,7 +128,13 @@ func _ready() -> void:
 	ui.add_child(_lens)
 	_snow = _make_marine_snow()
 	add_child(_snow)
+	# The mast-camera post effect sits directly on the UI layer (below the sight).
+	var scope_post := ColorRect.new()
+	scope_post.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	scope_post.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui.add_child(scope_post)
 	periscope_ui = PeriscopeOverlay.new()
+	periscope_ui.post_rect = scope_post
 	periscope_ui.sub = sub
 	periscope_ui.rig = rig
 	periscope_ui.ocean = ocean
@@ -143,10 +150,9 @@ func _ready() -> void:
 	ui.add_child(hud)
 	conn = ConnPanel.new()
 	conn.main = self
-	conn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	conn.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	conn.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	conn.position = Vector2(-290, -470)
+	UiStyle.place(conn, Vector2(1, 1), Vector2(-280, -90), Vector2(250, 0))
 	conn.command.connect(_on_command)
 	ui.add_child(conn)
 	encounter.message.connect(func(t: String) -> void: hud.event(t))
@@ -595,7 +601,8 @@ func _capture_step() -> void:
 	var spec: PackedStringArray = _capture.pop_front()
 	await RenderingServer.frame_post_draw
 	var img := get_viewport().get_texture().get_image()
-	var path := "%s/%s.png" % [_capture_dir, "_".join(spec)]
+	_capture_index += 1
+	var path := "%s/%02d_%s.png" % [_capture_dir, _capture_index, "_".join(spec)]
 	img.save_png(path)
 	print("CAPTURED ", path)
 	if _capture.is_empty():

@@ -27,7 +27,7 @@ var _scroll := 0.0
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hist_img = Image.create(8, ROWS, false, Image.FORMAT_RGBAF)
 	_hist_img.fill(Color(0, 0, 0, 0))

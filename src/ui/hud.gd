@@ -29,7 +29,7 @@ var _event_t := 0.0
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	_bar_top = _bar()
@@ -43,39 +43,30 @@ func _ready() -> void:
 	add_child(_ident)
 
 	_weather_label = UiStyle.label("", 13, UiStyle.DIM)
-	_weather_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	_weather_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_weather_label.position = Vector2(-540, 28)
-	_weather_label.size = Vector2(506, 20)
+	UiStyle.place(_weather_label, Vector2(1, 0), Vector2(-540, 28), Vector2(506, 20))
 	add_child(_weather_label)
 
 	_status = UiStyle.label("", 14, UiStyle.WHITE, UiStyle.mono())
-	_status.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_status.position = Vector2(-760, -50)
-	_status.size = Vector2(726, 20)
+	UiStyle.place(_status, Vector2(1, 1), Vector2(-760, -50), Vector2(726, 20))
 	add_child(_status)
 
 	_keys = UiStyle.label("", 12, UiStyle.DIM)
-	_keys.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_keys.position = Vector2(34, -48)
+	UiStyle.place(_keys, Vector2(0, 1), Vector2(34, -48), Vector2(1500, 20))
 	add_child(_keys)
 
 	_toast = UiStyle.label("", 18, UiStyle.WHITE)
-	_toast.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_toast.position = Vector2(-500, -150)
-	_toast.size = Vector2(1000, 30)
+	UiStyle.place(_toast, Vector2(0.5, 1), Vector2(-600, -150), Vector2(1200, 30))
 	_toast.add_theme_constant_override("outline_size", 6)
 	_toast.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
 	_toast.modulate.a = 0.0
 	add_child(_toast)
 
 	_event = UiStyle.label("", 24, Color(1.0, 0.86, 0.6), UiStyle.display())
-	_event.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	_event.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_event.position = Vector2(-700, 150)
-	_event.size = Vector2(1400, 40)
+	UiStyle.place(_event, Vector2(0.5, 0), Vector2(-800, 150), Vector2(1600, 40))
 	_event.add_theme_constant_override("outline_size", 8)
 	_event.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
 	_event.modulate.a = 0.0
@@ -96,33 +87,27 @@ func _bar() -> ColorRect:
 
 func _build_title() -> void:
 	_title_root = Control.new()
-	_title_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_title_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_title_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_title_root)
 	_fade = ColorRect.new()
 	_fade.color = Color.BLACK
-	_fade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_fade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_title_root.add_child(_fade)
 	_title = UiStyle.label("S I L E N T    S E A", 82, Color(0.93, 0.96, 0.98), UiStyle.title())
-	_title.set_anchors_preset(Control.PRESET_CENTER)
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_title.position = Vector2(-900, -90)
-	_title.size = Vector2(1800, 100)
+	UiStyle.place(_title, Vector2(0.5, 0.5), Vector2(-900, -90), Vector2(1800, 100))
 	_title.add_theme_constant_override("outline_size", 10)
 	_title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.35))
 	_title_root.add_child(_title)
 	_subtitle = UiStyle.label("WOLF OF THE DEEP   ·   PROTOTYPE 002   ·   FIRST CONTACT", 16, Color(0.7, 0.82, 0.9))
-	_subtitle.set_anchors_preset(Control.PRESET_CENTER)
 	_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_subtitle.position = Vector2(-600, 22)
-	_subtitle.size = Vector2(1200, 30)
+	UiStyle.place(_subtitle, Vector2(0.5, 0.5), Vector2(-600, 22), Vector2(1200, 30))
 	_title_root.add_child(_subtitle)
 	_prompt = UiStyle.label("PRESS ANY KEY TO TAKE THE CONN", 13, Color(0.8, 0.88, 0.95))
-	_prompt.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_prompt.position = Vector2(-400, -120)
-	_prompt.size = Vector2(800, 24)
+	UiStyle.place(_prompt, Vector2(0.5, 1), Vector2(-400, -120), Vector2(800, 24))
 	_title_root.add_child(_prompt)
 	_title_root.modulate.a = 0.0
 
@@ -135,8 +120,7 @@ func _build_help() -> void:
 	sb.set_border_width_all(1)
 	sb.set_content_margin_all(22)
 	_help.add_theme_stylebox_override("panel", sb)
-	_help.set_anchors_preset(Control.PRESET_CENTER_LEFT)
-	_help.position = Vector2(34, -250)
+	UiStyle.place(_help, Vector2(0, 0.5), Vector2(34, -300), Vector2(0, 0))
 	var txt := """CONTROLS  ·  PROTOTYPE 002  FIRST CONTACT
 
 THE ATTACK   P  periscope depth  ·  M  raise periscope  ·  3  periscope view
@@ -166,7 +150,7 @@ func _build_pause() -> void:
 	sb.bg_color = Color(0.0, 0.0, 0.0, 0.7)
 	sb.set_content_margin_all(40)
 	_pause.add_theme_stylebox_override("panel", sb)
-	_pause.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_pause.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var v := VBoxContainer.new()
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	_pause.add_child(v)
