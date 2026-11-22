@@ -1,9 +1,16 @@
 class_name SurfaceShip
 extends Node3D
-## Staged surface traffic: a container ship and a frigate built from simple
-## procedural shapes, riding the swell on straight courses. Cosmetic only.
+## Surface traffic built from simple procedural shapes, riding the swell on
+## straight courses. A torpedo hit starts a scripted (non-physical) sinking:
+## settle and list, secondary blast, bow- or stern-first plunge, gone.
+
+signal sinking_started(ship: SurfaceShip)
+signal secondary_blast(ship: SurfaceShip, world_pos: Vector3)
+signal went_under(ship: SurfaceShip)
+signal sunk(ship: SurfaceShip)
 
 enum Kind { MERCHANT, FRIGATE }
+enum State { SAILING, STRICKEN, SUNK }
 
 var kind := Kind.MERCHANT
 var ocean: Ocean
@@ -13,6 +20,22 @@ var length := 180.0
 var beam := 28.0
 var draft := 8.0
 var contact_name := "MERCHANT"
+var state := State.SAILING
+var recycle := true
+var top_height := 40.0
+var bow_length := 34.0
+
+var _sink_t := 0.0
+var _sink_depth := 0.0
+var _list := 0.0
+var _trim := 0.0
+var _list_side := 1.0
+var _trim_sign := 1.0
+var _hits := 0
+var _secondary_done := false
+var _under_done := false
+var _fires: Array[Node3D] = []
+var _churn: GPUParticles3D
 
 var _pitch := 0.0
 var _roll := 0.0
@@ -34,13 +57,18 @@ func _ready() -> void:
 		beam = 30.0
 		draft = 9.0
 		contact_name = "MERCHANT  ·  CONTAINER"
+		top_height = 13.0 + 34.0
+		bow_length = 34.0
 		_build_merchant()
 	else:
 		length = 134.0
 		beam = 17.5
 		draft = 5.2
 		contact_name = "WARSHIP  ·  FRIGATE"
+		top_height = 39.0
+		bow_length = 40.0
 		_build_frigate()
+	_churn = _make_churn()
 
 
 func place(pos: Vector3, p_heading: float, knots: float) -> void:
@@ -53,12 +81,80 @@ func forward() -> Vector3:
 	return Vector3(sin(heading), 0.0, -cos(heading))
 
 
+func is_afloat() -> bool:
+	return state != State.SUNK and _sink_depth < draft + 6.0
+
+
+func is_sinking() -> bool:
+	return state == State.STRICKEN
+
+
+## True if a world point lies inside the underwater part of the hull.
+func contains_point(world_pos: Vector3) -> bool:
+	var l := to_local(world_pos)
+	if absf(l.z) > length * 0.5:
+		return false
+	var s := l.z + length * 0.5
+	var wf := 1.0
+	if s < bow_length:
+		wf = pow(sin(PI * 0.5 * s / bow_length), 0.75)
+	if absf(l.x) > beam * 0.5 * wf + 0.8:
+		return false
+	return l.y > -draft - 1.0 and l.y < 4.0
+
+
+## A torpedo has struck at world_pos.
+func strike(world_pos: Vector3) -> void:
+	var l := to_local(world_pos)
+	_hits += 1
+	_add_fire(Vector3(clampf(l.x, -beam * 0.45, beam * 0.45), 1.5, l.z))
+	if state == State.STRICKEN:
+		_sink_t += 6.0
+		return
+	state = State.STRICKEN
+	_sink_t = 0.0
+	_list_side = 1.0 if l.x >= 0.0 else -1.0
+	_trim_sign = 1.0 if l.z < 0.0 else -1.0
+	recycle = false
+	for light in _lights:
+		light.visible = false
+	if _windows_mat:
+		_windows_mat.emission_energy_multiplier = 0.0
+	sinking_started.emit(self)
+
+
+## Put the ship back afloat at a new position (replay).
+func reset_to(pos: Vector3, p_heading: float, knots: float) -> void:
+	state = State.SAILING
+	_sink_t = 0.0
+	_sink_depth = 0.0
+	_list = 0.0
+	_trim = 0.0
+	_hits = 0
+	_secondary_done = false
+	_under_done = false
+	for f in _fires:
+		f.queue_free()
+	_fires.clear()
+	_churn.emitting = false
+	visible = true
+	place(pos, p_heading, knots)
+	var was := _night
+	_night = not was
+	set_night(was)
+
+
 func advance(dt: float, around: Vector3) -> void:
+	if state == State.SUNK:
+		return
+	if state == State.STRICKEN:
+		speed = move_toward(speed, 0.0, dt * 0.15)
+		_advance_sinking(dt)
 	position += forward() * speed * dt
 	# Keep the staged traffic in view: recycle ships that sail far away.
 	var rel := position - around
 	rel.y = 0.0
-	if rel.length() > 9000.0:
+	if recycle and rel.length() > 9000.0:
 		var back := -rel.normalized()
 		position = around + back * 5000.0 + Vector3(-back.z, 0.0, back.x) * _rng.randf_range(-2500.0, 2500.0)
 		position.y = 0.0
@@ -71,11 +167,120 @@ func advance(dt: float, around: Vector3) -> void:
 		var hp := ocean.height_at(position.x - r.x * beam * 0.45, position.z - r.z * beam * 0.45)
 		var hst := ocean.height_at(position.x + r.x * beam * 0.45, position.z + r.z * beam * 0.45)
 		var k := 1.0 - exp(-dt * 1.5)
-		_heave = lerpf(_heave, (hb + hs + hp + hst) * 0.25, k)
-		_pitch = lerpf(_pitch, atan2(hb - hs, length * 0.8) * 0.8, k)
-		_roll = lerpf(_roll, atan2(hp - hst, beam) * 0.8, k * 0.7)
-	position.y = _heave
-	basis = Basis(Vector3.UP, -heading) * Basis(Vector3.RIGHT, _pitch) * Basis(Vector3.FORWARD, _roll)
+		var float_w := 1.0 - smoothstep(0.0, 12.0, _sink_t) if state == State.STRICKEN else 1.0
+		_heave = lerpf(_heave, (hb + hs + hp + hst) * 0.25 * float_w, k)
+		_pitch = lerpf(_pitch, atan2(hb - hs, length * 0.8) * 0.8 * float_w, k)
+		_roll = lerpf(_roll, atan2(hp - hst, beam) * 0.8 * float_w, k * 0.7)
+	position.y = _heave - _sink_depth
+	basis = Basis(Vector3.UP, -heading) * Basis(Vector3.RIGHT, _pitch - _trim * _trim_sign) * Basis(Vector3.FORWARD, _roll + _list * _list_side)
+
+
+func _advance_sinking(dt: float) -> void:
+	_sink_t += dt
+	var t := _sink_t
+	var total := draft + top_height + 25.0
+	# Settle and list, then an accelerating plunge.
+	var settle := 2.2 * smoothstep(0.0, 10.0, t)
+	var plunge := pow(clampf((t - 9.0) / 38.0, 0.0, 1.0), 1.9) * total
+	var deep := maxf(t - 47.0, 0.0) * 6.0
+	_sink_depth = settle + plunge + deep
+	_list = deg_to_rad(lerpf(0.0, 8.0, smoothstep(0.0, 8.0, t)) + lerpf(0.0, 20.0, smoothstep(10.0, 40.0, t)))
+	_trim = deg_to_rad(lerpf(0.0, 1.5, smoothstep(0.0, 8.0, t)) + lerpf(0.0, 14.0, smoothstep(12.0, 42.0, t)))
+	if not _secondary_done and t > 7.0:
+		_secondary_done = true
+		secondary_blast.emit(self, to_global(Vector3(-_list_side * beam * 0.2, 12.0, length * 0.15 * _trim_sign)))
+	# Fires drown as they reach the water.
+	for f in _fires:
+		var under := f.global_position.y < 0.3
+		var flames: GPUParticles3D = f.get_node("Flames")
+		var smoke: GPUParticles3D = f.get_node("Smoke")
+		var glow: OmniLight3D = f.get_node("Glow")
+		flames.emitting = not under
+		glow.visible = not under
+		glow.light_energy = randf_range(5.0, 9.0)
+		smoke.emitting = f.global_position.y > -3.0
+	# White water boils around the hull while it goes down.
+	_churn.global_position = Vector3(global_position.x, 0.4, global_position.z)
+	_churn.emitting = t > 6.0 and _sink_depth < total
+	if not _under_done and _sink_depth > draft + top_height * 0.75:
+		_under_done = true
+		went_under.emit(self)
+	if t > 62.0:
+		state = State.SUNK
+		visible = false
+		_churn.emitting = false
+		sunk.emit(self)
+
+
+func _add_fire(local_pos: Vector3) -> void:
+	var holder := Node3D.new()
+	holder.position = local_pos
+	_body.add_child(holder)
+	_fires.append(holder)
+	var flames := _particles("Flames", 260, 1.4, Vector3(3.0, 0.8, 5.0), 3.0, 9.0, 1.2, 4.5, Color(1.0, 0.55, 0.18, 0.85), true)
+	holder.add_child(flames)
+	var smoke := _particles("Smoke", 260, 12.0, Vector3(3.0, 1.0, 5.0), 2.5, 6.0, 5.0, 22.0, Color(0.07, 0.065, 0.06, 0.55), false)
+	(smoke.process_material as ParticleProcessMaterial).gravity = Vector3(2.0, 1.6, 0.6)
+	holder.add_child(smoke)
+	var glow := OmniLight3D.new()
+	glow.name = "Glow"
+	glow.light_color = Color(1.0, 0.5, 0.2)
+	glow.light_energy = 7.0
+	glow.omni_range = 45.0
+	glow.position = Vector3(0, 3.0, 0)
+	holder.add_child(glow)
+
+
+func _particles(n: String, amount: int, life: float, box: Vector3, vmin: float, vmax: float, smin: float, smax: float, color: Color, additive: bool) -> GPUParticles3D:
+	var p := GPUParticles3D.new()
+	p.name = n
+	p.amount = amount
+	p.lifetime = life
+	p.local_coords = false
+	p.visibility_aabb = AABB(Vector3(-200, -60, -200), Vector3(400, 260, 400))
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var pm := ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	pm.emission_box_extents = box
+	pm.direction = Vector3.UP
+	pm.spread = 18.0
+	pm.initial_velocity_min = vmin
+	pm.initial_velocity_max = vmax
+	pm.gravity = Vector3(0, 2.0, 0)
+	pm.damping_min = 0.5
+	pm.damping_max = 1.5
+	var sc := Curve.new()
+	sc.add_point(Vector2(0.0, smin / smax))
+	sc.add_point(Vector2(1.0, 1.0))
+	var sct := CurveTexture.new()
+	sct.curve = sc
+	pm.scale_curve = sct
+	var ac := Curve.new()
+	ac.add_point(Vector2(0.0, 0.0))
+	ac.add_point(Vector2(0.1, 1.0))
+	ac.add_point(Vector2(1.0, 0.0))
+	var act := CurveTexture.new()
+	act.curve = ac
+	pm.alpha_curve = act
+	p.process_material = pm
+	var q := QuadMesh.new()
+	q.size = Vector2(smax, smax)
+	var qm := ShaderMaterial.new()
+	qm.shader = load("res://src/fx/fire_particle.gdshader" if additive else "res://src/fx/soft_particle.gdshader")
+	qm.set_shader_parameter("tint", color)
+	q.material = qm
+	p.draw_pass_1 = q
+	return p
+
+
+func _make_churn() -> GPUParticles3D:
+	var p := _particles("Churn", 700, 3.0, Vector3(beam * 0.6, 0.5, length * 0.45), 1.0, 5.0, 2.0, 7.0, Color(0.9, 0.94, 0.96, 0.5), false)
+	(p.process_material as ParticleProcessMaterial).gravity = Vector3(0, -6.0, 0)
+	(p.process_material as ParticleProcessMaterial).spread = 50.0
+	p.emitting = false
+	p.top_level = true
+	add_child(p)
+	return p
 
 
 var _night := false
@@ -85,6 +290,8 @@ func set_night(on: bool) -> void:
 	if on == _night:
 		return
 	_night = on
+	if state != State.SAILING:
+		return
 	for l in _lights:
 		l.visible = on
 	if _windows_mat:
@@ -136,6 +343,26 @@ func _add_hull(fn: Callable, mat: Material) -> void:
 	var mesh := ArrayMesh.new()
 	var uvf := func(u: float, v: float) -> Vector2: return Vector2(u * 30.0, v * 10.0)
 	ParamMesh.add_to(mesh, ParamMesh.surface(fn, uvf, 120, 48), mat)
+	# Close the transom so the stern reads as solid when it lifts out of the water.
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var ring: Array[Vector3] = []
+	var centre := Vector3.ZERO
+	for i in 48:
+		var p: Vector3 = fn.call(1.0, float(i) / 48.0)
+		ring.append(p)
+		centre += p
+	centre /= 48.0
+	for i in 48:
+		var a := ring[i]
+		var b := ring[(i + 1) % 48]
+		for tri in [[centre, a, b], [centre, b, a]]:
+			for v in tri:
+				st.set_normal(Vector3(0, 0, 1))
+				st.set_uv(Vector2(v.x, v.y))
+				st.add_vertex(v)
+	st.set_material(mat)
+	st.commit(mesh)
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	_body.add_child(mi)

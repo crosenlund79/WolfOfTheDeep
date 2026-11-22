@@ -24,6 +24,8 @@ var _pause: PanelContainer
 var _title_t := -1.0
 var _bars := 0.0
 var _hint_t := 14.0
+var _event: Label
+var _event_t := 0.0
 
 
 func _ready() -> void:
@@ -54,7 +56,7 @@ func _ready() -> void:
 	_status.size = Vector2(726, 20)
 	add_child(_status)
 
-	_keys = UiStyle.label("1 CINEMATIC   2 EXTERIOR   3 MAST   4 CONTROL ROOM   5 SONAR   ·   F1–F5 WEATHER   ·   H CONTROLS", 12, UiStyle.DIM)
+	_keys = UiStyle.label("", 12, UiStyle.DIM)
 	_keys.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_keys.position = Vector2(34, -48)
 	add_child(_keys)
@@ -68,6 +70,16 @@ func _ready() -> void:
 	_toast.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
 	_toast.modulate.a = 0.0
 	add_child(_toast)
+
+	_event = UiStyle.label("", 24, Color(1.0, 0.86, 0.6), UiStyle.display())
+	_event.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_event.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_event.position = Vector2(-700, 150)
+	_event.size = Vector2(1400, 40)
+	_event.add_theme_constant_override("outline_size", 8)
+	_event.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
+	_event.modulate.a = 0.0
+	add_child(_event)
 
 	_build_title()
 	_build_help()
@@ -100,7 +112,7 @@ func _build_title() -> void:
 	_title.add_theme_constant_override("outline_size", 10)
 	_title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.35))
 	_title_root.add_child(_title)
-	_subtitle = UiStyle.label("WOLF OF THE DEEP   ·   VISUAL PROTOTYPE 001", 16, Color(0.7, 0.82, 0.9))
+	_subtitle = UiStyle.label("WOLF OF THE DEEP   ·   PROTOTYPE 002   ·   FIRST CONTACT", 16, Color(0.7, 0.82, 0.9))
 	_subtitle.set_anchors_preset(Control.PRESET_CENTER)
 	_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_subtitle.position = Vector2(-600, 22)
@@ -125,21 +137,23 @@ func _build_help() -> void:
 	_help.add_theme_stylebox_override("panel", sb)
 	_help.set_anchors_preset(Control.PRESET_CENTER_LEFT)
 	_help.position = Vector2(34, -250)
-	var txt := """CONTROLS
+	var txt := """CONTROLS  ·  PROTOTYPE 002  FIRST CONTACT
 
-VIEWS        1  Cinematic director     2  Exterior orbit
-             3  Optronic mast          4  Control room
-             5  Sonar / tactical       Tab  cycle views
-CAMERA       Drag mouse to orbit · Wheel to zoom
-             (mast: mouse to train · wheel to zoom · T sensor · Space mark)
-BOAT         W / S  telegraph     A / D  rudder     M  masts
-             Z  dive one step     X  rise one step     B  emergency blow
-WEATHER      F1 Atlantic dawn   F2 Clear   F3 Golden hour
-             F4 Gale            F5 Moonlit night       N  next
+THE ATTACK   P  periscope depth  ·  M  raise periscope  ·  3  periscope view
+             find the merchant (drag mouse or Q / E to train, wheel to zoom)
+             hold the crosshair on her to build a solution  ·  SPACE  fire
+             6  follow the torpedo  ·  + / -  time ×1–×8  ·  N  new target
+DEPTH        O  surface   P  periscope depth   Z  dive deeper   X  rise
+             B  emergency blow (from 40 m or deeper)
+BOAT         W / S  telegraph     A / D  rudder
+VIEWS        1 cinematic  2 exterior  3 periscope  4 control room
+             5 sonar  6 torpedo cam  ·  drag to orbit, wheel to zoom
+PERISCOPE    T  sensor (TV / low light / thermal)  ·  Enter  mark bearing
+WEATHER      F1 dawn  F2 clear  F3 golden hour  F4 gale  F5 night
 DISPLAY      U  hide interface   F9  performance mode   F11  fullscreen
              Esc  pause / quit
 
-Everything you see is staged: there is no simulation behind it yet."""
+Only the torpedo engagement is simulated (simply); the rest is staged."""
 	var l := UiStyle.label(txt, 14, UiStyle.WHITE, UiStyle.mono())
 	_help.add_child(l)
 	_help.visible = false
@@ -172,6 +186,12 @@ func play_title() -> void:
 	_title_root.modulate.a = 1.0
 
 
+## Engagement events: a larger banner that stays up a little longer.
+func event(text: String) -> void:
+	_event.text = text
+	_event_t = 5.5
+
+
 func toast(text: String) -> void:
 	_toast.text = text
 	_toast_t = 3.2
@@ -194,6 +214,16 @@ func toggle_pause() -> void:
 func _unhandled_key_input(event: InputEvent) -> void:
 	if _pause.visible and event.pressed and (event as InputEventKey).keycode == KEY_Q:
 		get_tree().quit()
+
+
+func _hint_line(v: int) -> String:
+	match v:
+		2:
+			return "DRAG or Q/E  TRAIN   ·   WHEEL  ZOOM   ·   SPACE  FIRE   ·   M  PERISCOPE   ·   P / O / Z  DEPTH   ·   6  TORPEDO CAM   ·   2  EXTERIOR   ·   H  ALL CONTROLS"
+		5:
+			return "TORPEDO CAM   ·   + / -  TIME   ·   2  EXTERIOR   ·   3  PERISCOPE   ·   N  NEW TARGET   ·   H  ALL CONTROLS"
+		_:
+			return "P  PERISCOPE DEPTH   ·   M  RAISE PERISCOPE   ·   3  PERISCOPE VIEW   ·   O  SURFACE   ·   Z  DIVE   ·   F1–F5  WEATHER   ·   H  ALL CONTROLS"
 
 
 func _process(delta: float) -> void:
@@ -221,8 +251,13 @@ func _process(delta: float) -> void:
 		_toast_t -= delta
 		_toast.modulate.a = clampf(_toast_t * 2.0, 0.0, 1.0)
 
+	if _event_t > 0.0:
+		_event_t -= delta
+		_event.modulate.a = clampf(_event_t * 1.5, 0.0, 1.0)
 	_hint_t -= delta
-	_keys.modulate.a = 1.0 if _hint_t > 0.0 else 0.45
+	_keys.modulate.a = 1.0 if _hint_t > 0.0 else 0.6
+	if main:
+		_keys.text = _hint_line(int(main.view))
 	var title_busy := _title_t >= 0.0 and _title_t < 12.0
 	var own_ui: bool = main != null and (main.view == 2 or main.view == 4)
 	for c in [_view_label, _status, _keys, _weather_label]:

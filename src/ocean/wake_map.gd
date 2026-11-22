@@ -49,3 +49,23 @@ func advance() -> void:
 	if ocean:
 		ocean.set_param("wake_map", get_texture())
 		ocean.set_param("wake_rect", Vector3(cx, cz, SIZE_M))
+
+
+## A soft, broken ring of churned white water that fades over `duration` seconds.
+func add_foam_burst(world_pos: Vector3, size_m: float, strength: float, duration: float) -> void:
+	var disc := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(size_m, size_m)
+	disc.mesh = pm
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://src/fx/foam_burst.gdshader")
+	mat.set_shader_parameter("seed", randf() * 50.0)
+	mat.set_shader_parameter("strength", strength)
+	disc.material_override = mat
+	disc.layers = WakeTrail.LAYER
+	disc.top_level = true
+	add_child(disc)
+	disc.global_position = Vector3(world_pos.x, 0.0, world_pos.z)
+	var tw := create_tween()
+	tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("strength", v), strength, 0.0, duration)
+	tw.tween_callback(disc.queue_free)

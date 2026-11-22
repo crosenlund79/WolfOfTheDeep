@@ -8,6 +8,7 @@ uniform float wash = 0.0;
 uniform float submerged = 0.0;
 uniform float time = 0.0;
 uniform float flash = 0.0;
+uniform float blackout = 0.0;
 uniform vec2 resolution = vec2(1920.0, 1080.0);
 
 float hash(vec2 p) {
@@ -71,5 +72,7 @@ void fragment() {
 	float vig = smoothstep(0.85, 0.35, length(c * vec2(resolution.x / resolution.y, 1.0)) * 0.75);
 	col *= mix(0.55, 1.0, vig);
 	col += flash;
+	// Mast housed or moving: the feed is dark apart from sensor noise.
+	col = mix(col, vec3(0.012, 0.016, 0.018) + n * 0.03, blackout);
 	COLOR = vec4(col, 1.0);
 }

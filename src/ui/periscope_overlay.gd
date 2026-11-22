@@ -10,7 +10,10 @@ var rig: CameraRig
 var ocean: Ocean
 var ships: Array[Node3D] = []
 var weather: Weather
+var encounter: Encounter
 var mast_submerged := 0.0
+var _away_t := 0.0
+var _blackout := 0.0
 
 var mode := 0
 var _post: ColorRect
@@ -68,10 +71,15 @@ func handle_input(event: InputEvent) -> bool:
 			_set_mode((mode + 1) % MODES.size())
 			_say("SENSOR  " + String(MODES[mode]))
 			return true
-		if k == KEY_SPACE:
+		if k == KEY_ENTER or k == KEY_KP_ENTER:
 			_mark()
 			return true
 	return false
+
+
+func torpedo_away() -> void:
+	_away_t = 2.5
+	_flash = 0.25
 
 
 func _say(t: String) -> void:
@@ -116,6 +124,11 @@ func _process(delta: float) -> void:
 	_post_mat.set_shader_parameter("time", _time)
 	_post_mat.set_shader_parameter("flash", _flash)
 	_post_mat.set_shader_parameter("resolution", get_viewport_rect().size)
+	_away_t = maxf(_away_t - delta, 0.0)
+	var scope := sub.periscope_state()
+	var want_black := 1.0 if scope == Submarine.Scope.HOUSED else (0.85 if scope == Submarine.Scope.MOVING else 0.0)
+	_blackout = move_toward(_blackout, want_black, delta * 2.5)
+	_post_mat.set_shader_parameter("blackout", _blackout)
 	queue_redraw()
 
 
@@ -192,14 +205,17 @@ func _draw() -> void:
 		var p := rig.camera.unproject_position(ship.global_position + Vector3(0, 8.0, 0))
 		var rel := ship.global_position - sub.global_position
 		var dist := rel.length()
-		if p.x < 0 or p.x > vp.x or p.y < 0 or p.y > vp.y or mast_submerged > 0.0:
+		if p.x < 0 or p.x > vp.x or p.y < 0 or p.y > vp.y or mast_submerged > 0.0 or not ship.visible or _blackout > 0.5:
 			continue
 		var half := clampf(ship.length / dist * px_per_deg * 57.3 * 0.55, 18.0, 400.0)
 		var hh := half * 0.45
 		var r := Rect2(p - Vector2(half, hh), Vector2(half * 2.0, hh * 2.0))
-		_brackets(r, Color(1.0, 0.8, 0.35, 0.95))
+		var is_locked := encounter != null and encounter.locked == ship
+		var bc := Color(1.0, 0.35, 0.25, 1.0) if is_locked else Color(1.0, 0.8, 0.35, 0.95)
+		_brackets(r, bc)
 		var sb := fposmod(rad_to_deg(atan2(rel.x, -rel.z)), 360.0)
-		draw_string(f, r.position + Vector2(0, -8), "TRK %02d  ·  %s" % [i, ship.contact_name], HORIZONTAL_ALIGNMENT_LEFT, 400, 12, Color(1.0, 0.8, 0.35))
+		var tag := "  ·  SINKING" if ship.is_sinking() else ("  ·  LOCKED" if is_locked else "")
+		draw_string(f, r.position + Vector2(0, -8), "TRK %02d  ·  %s%s" % [i, ship.contact_name, tag], HORIZONTAL_ALIGNMENT_LEFT, 500, 12, bc)
 		draw_string(f, r.position + Vector2(0, r.size.y + 16), "BRG %05.1f   RNG %.1f KM   AOB %s" % [sb, dist / 1000.0, _aob(ship, rel)], HORIZONTAL_ALIGNMENT_LEFT, 400, 11, Color(1.0, 0.8, 0.35, 0.8))
 		i += 1
 
@@ -213,11 +229,67 @@ func _draw() -> void:
 	_block(Vector2(vp.x - 330, 120), [_clock(), mast_state, "EXPOSURE  %02d:%02d" % [int(_rec_t) / 60, int(_rec_t) % 60], "ESM       NO EMITTERS"], col, true)
 	_block(Vector2(40, vp.y - 150), ["OWN SHIP", "DEPTH  %5.1f M" % sub.depth, "SPEED  %4.1f KT" % sub.knots(), "HDG    %03d" % int(fposmod(rad_to_deg(sub.heading), 360.0))], dim)
 	draw_string(fd, Vector2(vp.x - 330, vp.y - 120), "●  REC", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1.0, 0.3, 0.3, 0.5 + 0.5 * sin(_time * 4.0)))
-	draw_string(f, Vector2(vp.x - 330, vp.y - 96), "MOUSE TRAIN · WHEEL ZOOM · T SENSOR · SPACE MARK", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, dim)
-	if mast_submerged > 0.0:
-		draw_string(fd, Vector2(cx - 300, cy + 120), "MAST BELOW SURFACE  —  COMING TO PERISCOPE DEPTH", HORIZONTAL_ALIGNMENT_CENTER, 600, 16, col)
+	draw_string(f, Vector2(vp.x - 330, vp.y - 96), "DRAG / Q E TRAIN · WHEEL ZOOM · T SENSOR", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, dim)
+	_draw_fire_control(vp, cx, cy, px_per_deg, brg, tape_y)
+	var scope := sub.periscope_state()
+	var notice := ""
+	match scope:
+		Submarine.Scope.HOUSED:
+			notice = "PERISCOPE LOWERED  —  PRESS M TO RAISE" if sub.depth < 25.0 else "TOO DEEP FOR THE PERISCOPE  —  P  PERISCOPE DEPTH, THEN  M  RAISE"
+		Submarine.Scope.MOVING:
+			notice = "PERISCOPE " + ("RAISING" if sub.masts_up else "LOWERING") + " …"
+		Submarine.Scope.UNDERWATER:
+			notice = "PERISCOPE UNDER WATER  —  COME TO PERISCOPE DEPTH  (P)"
+	if notice != "":
+		draw_string(fd, Vector2(cx - 450, cy + 120), notice, HORIZONTAL_ALIGNMENT_CENTER, 900, 18, col)
 	if _status_t > 0.0:
 		draw_string(fd, Vector2(cx - 400, vp.y - 110), _status, HORIZONTAL_ALIGNMENT_CENTER, 800, 18, Color(col.r, col.g, col.b, clampf(_status_t, 0.0, 1.0)))
+
+
+## Fire prompt, solution meter and running-torpedo markers.
+func _draw_fire_control(vp: Vector2, cx: float, cy: float, px_per_deg: float, brg: float, tape_y: float) -> void:
+	if encounter == null:
+		return
+	var fd := UiStyle.display()
+	var f := UiStyle.mono()
+	var amber := Color(1.0, 0.78, 0.35)
+	var red := Color(1.0, 0.4, 0.3)
+	var by := vp.y - 200.0
+	var ready := encounter.can_fire()
+	var clear := sub.periscope_state() == Submarine.Scope.CLEAR
+	var fire_txt := "SPACE   FIRE TORPEDO" if ready else "TUBES RELOADING   %d S" % ceili(encounter.reload)
+	draw_string(fd, Vector2(cx - 200, by), fire_txt, HORIZONTAL_ALIGNMENT_CENTER, 400, 20, (red if ready and clear else Color(amber.r, amber.g, amber.b, 0.6)))
+	# Solution meter.
+	var w := 260.0
+	var x0 := cx - w * 0.5
+	var y0 := by + 16.0
+	draw_rect(Rect2(x0, y0, w, 8), Color(1, 1, 1, 0.15))
+	draw_rect(Rect2(x0, y0, w * encounter.solution, 8), amber if encounter.solution < 0.99 else Color(0.45, 1.0, 0.6))
+	var sol_txt := "SOLUTION  %d%%" % int(encounter.solution * 100.0)
+	if encounter.locked:
+		sol_txt += "   ·   TRACKING  " + encounter.locked.contact_name.split("  ")[0]
+	else:
+		sol_txt += "   ·   PUT THE CROSSHAIR ON A SHIP"
+	draw_string(f, Vector2(cx - 300, y0 + 28), sol_txt, HORIZONTAL_ALIGNMENT_CENTER, 600, 12, amber)
+	# Running torpedoes on the bearing tape and in view.
+	var n := 1
+	for t in encounter.torpedoes:
+		if not is_instance_valid(t) or t.done:
+			continue
+		var rel := t.global_position - sub.global_position
+		var tb := fposmod(rad_to_deg(atan2(rel.x, -rel.z)), 360.0)
+		var tx := cx + wrapf(tb - brg, -180.0, 180.0) * px_per_deg
+		if absf(tx - cx) < 520.0:
+			draw_rect(Rect2(tx - 4, tape_y + 4, 8, 8), Color(0.5, 0.9, 1.0))
+		var surf := Vector3(t.global_position.x, 0.0, t.global_position.z)
+		if not rig.camera.is_position_behind(surf):
+			var sp := rig.camera.unproject_position(surf)
+			if sp.x > 0 and sp.x < vp.x and sp.y > 0 and sp.y < vp.y:
+				draw_arc(sp, 7.0, 0.0, TAU, 16, Color(0.5, 0.9, 1.0, 0.9), 1.5)
+				draw_string(f, sp + Vector2(10, -6), "T%d  %.1f KM" % [n, rel.length() / 1000.0], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.5, 0.9, 1.0))
+		n += 1
+	if _away_t > 0.0:
+		draw_string(fd, Vector2(cx - 300, cy - 110), "TORPEDO AWAY", HORIZONTAL_ALIGNMENT_CENTER, 600, 34, Color(1.0, 0.45, 0.35, clampf(_away_t, 0.0, 1.0)))
 
 
 func _brackets(r: Rect2, c: Color) -> void:

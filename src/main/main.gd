@@ -1,11 +1,12 @@
 extends Node3D
-## Silent Sea — Visual Prototype 001.
-## Builds the scene, owns view switching and keyboard controls. Everything is
-## staged or cosmetic: there is no simulation model behind what you see.
+## Silent Sea — Prototype 002 "First Contact" (built on Visual Prototype 001).
+## Builds the scene, owns view switching and controls. Apart from the simple
+## torpedo engagement, everything is staged or cosmetic.
 
-enum View { CINEMATIC, EXTERIOR, PERISCOPE, COMMAND_ROOM, SONAR }
+enum View { CINEMATIC, EXTERIOR, PERISCOPE, COMMAND_ROOM, SONAR, TORPEDO_CAM }
 
-const VIEW_NAMES := ["CINEMATIC", "EXTERIOR", "OPTRONIC MAST", "CONTROL ROOM", "SONAR / TACTICAL"]
+const VIEW_NAMES := ["CINEMATIC", "EXTERIOR", "PERISCOPE", "CONTROL ROOM", "SONAR / TACTICAL", "TORPEDO CAM"]
+const TIME_LEVELS := [1.0, 2.0, 4.0, 8.0]
 
 var weather: Weather
 var ocean: Ocean
@@ -17,7 +18,10 @@ var hud: Hud
 var periscope_ui: PeriscopeOverlay
 var sonar_ui: SonarConsole
 var room: CommandRoom
-var audio: Ambience
+var audio: AudioManager
+var encounter: Encounter
+var conn: ConnPanel
+var _time_level := 0
 
 var view := View.CINEMATIC
 var _sub_trail: WakeTrail
@@ -90,12 +94,26 @@ func _ready() -> void:
 	room.weather = weather
 	add_child(room)
 
-	audio = Ambience.new()
-	audio.name = "Ambience"
+	audio = AudioManager.new()
+	audio.name = "Audio"
 	add_child(audio)
 	weather.lightning_struck.connect(audio.thunder)
 	sub.vents_opened.connect(audio.vents)
 	sub.breached.connect(_on_breach)
+	sub.surfacing.connect(func() -> void: audio.play("submarine_surface", -2.0, 1.0, true))
+	sub.periscope_moved.connect(_on_periscope_moved)
+
+	encounter = Encounter.new()
+	encounter.name = "Encounter"
+	encounter.sub = sub
+	encounter.rig = rig
+	encounter.ocean = ocean
+	encounter.audio = audio
+	encounter.wake_map = wake_map
+	encounter.ships = ships
+	add_child(encounter)
+	encounter.setup(self, ships[0] as SurfaceShip)
+	encounter.reset_target.call_deferred()
 
 	var ui := CanvasLayer.new()
 	ui.name = "UI"
@@ -123,6 +141,18 @@ func _ready() -> void:
 	hud = Hud.new()
 	hud.main = self
 	ui.add_child(hud)
+	conn = ConnPanel.new()
+	conn.main = self
+	conn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	conn.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	conn.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	conn.position = Vector2(-290, -470)
+	conn.command.connect(_on_command)
+	ui.add_child(conn)
+	encounter.message.connect(func(t: String) -> void: hud.event(t))
+	encounter.torpedo_fired.connect(func(_t: Torpedo) -> void: periscope_ui.torpedo_away())
+	encounter.target_hit.connect(_on_target_hit)
+	periscope_ui.encounter = encounter
 
 	room.setup_screens(rig, ocean, ships)
 	room.station_selected.connect(_on_station_selected)
@@ -152,23 +182,7 @@ func _on_breach(strength: float) -> void:
 	rig.shake(strength)
 	audio.splash(strength)
 	# A ring of churned white water left on the surface.
-	var disc := MeshInstance3D.new()
-	var pm := PlaneMesh.new()
-	pm.size = Vector2(90.0, 90.0) * strength
-	disc.mesh = pm
-	var mat := ShaderMaterial.new()
-	mat.shader = load("res://src/fx/foam_burst.gdshader")
-	mat.set_shader_parameter("seed", randf() * 50.0)
-	mat.set_shader_parameter("strength", 0.55)
-	disc.material_override = mat
-	disc.layers = WakeTrail.LAYER
-	disc.top_level = true
-	wake_map.add_child(disc)
-	var bow := sub.to_global(Vector3(0, 0, -20.0))
-	disc.global_position = Vector3(bow.x, 0.0, bow.z)
-	var tw := create_tween()
-	tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("strength", v), 0.55, 0.0, 35.0)
-	tw.tween_callback(disc.queue_free)
+	wake_map.add_foam_burst(sub.to_global(Vector3(0, 0, -20.0)), 90.0 * strength, 0.55, 35.0)
 
 
 func _spawn_ships() -> void:
@@ -184,14 +198,15 @@ func _spawn_ships() -> void:
 	frigate.ocean = ocean
 	frigate.name = "Frigate"
 	add_child(frigate)
-	frigate.place(sub.position + Vector3(1900.0, 0.0, -1300.0), deg_to_rad(262.0), 16.0)
+	frigate.place(sub.position + Vector3(5200.0, 0.0, -3600.0), deg_to_rad(250.0), 16.0)
 	ships.append(frigate)
 
 
 func _process(delta: float) -> void:
-	var dt := minf(delta, 0.1)
+	var dt := minf(delta, 0.25)
 	ocean.advance(dt)
 	sub.advance(dt)
+	encounter.advance(dt, view == View.PERISCOPE)
 	var night := float(weather.current.get("nav_lights", 0.0)) > 0.5
 	for s in ships:
 		(s as SurfaceShip).advance(dt, sub.position)
@@ -317,6 +332,7 @@ func set_view(v: View) -> void:
 	view = v
 	periscope_ui.visible = v == View.PERISCOPE
 	sonar_ui.visible = v == View.SONAR
+	conn.visible = v == View.EXTERIOR or v == View.PERISCOPE or v == View.TORPEDO_CAM
 	room.set_active(v == View.COMMAND_ROOM)
 	get_viewport().disable_3d = v == View.SONAR
 	RenderingServer.global_shader_parameter_set("thermal_mode", 0.0)
@@ -328,9 +344,6 @@ func set_view(v: View) -> void:
 			rig.set_mode(CameraRig.Mode.ORBIT)
 			rig.camera.make_current()
 		View.PERISCOPE:
-			if sub.depth_mode >= 2:
-				sub.set_depth_mode(1)
-			sub.masts_up = true
 			rig.set_mode(CameraRig.Mode.PERISCOPE)
 			rig.camera.make_current()
 			periscope_ui.on_enter()
@@ -339,6 +352,21 @@ func set_view(v: View) -> void:
 			room.camera.make_current()
 		View.SONAR:
 			rig.set_mode(CameraRig.Mode.FIXED)
+		View.TORPEDO_CAM:
+			rig.camera.make_current()
+			var t := encounter.torpedo_running()
+			if t:
+				rig.follow_target = t
+				rig.set_mode(CameraRig.Mode.FOLLOW)
+			elif encounter.target.is_sinking():
+				rig.watch_target = encounter.target
+				rig.set_mode(CameraRig.Mode.WATCH)
+			else:
+				hud.toast("NO TORPEDO RUNNING  ·  FIRE FROM THE PERISCOPE FIRST")
+				view = View.EXTERIOR
+				rig.set_mode(CameraRig.Mode.ORBIT)
+				conn.visible = true
+				v = View.EXTERIOR
 	if hud:
 		hud.set_view_name(VIEW_NAMES[v])
 
@@ -368,6 +396,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			set_view(View.COMMAND_ROOM)
 		KEY_5:
 			set_view(View.SONAR)
+		KEY_6:
+			_on_command("torpedo_cam")
 		KEY_TAB:
 			set_view(((view + 1) % VIEW_NAMES.size()) as View)
 		KEY_F1:
@@ -381,7 +411,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_F5:
 			weather.set_preset("night")
 		KEY_N:
-			weather.next_preset()
+			_on_command("new_target")
+		KEY_O:
+			_on_command("surface")
+		KEY_P:
+			_on_command("periscope_depth")
+		KEY_EQUAL, KEY_PLUS, KEY_KP_ADD, KEY_BRACKETRIGHT:
+			_set_time_level(_time_level + 1)
+		KEY_MINUS, KEY_KP_SUBTRACT, KEY_BRACKETLEFT:
+			_set_time_level(_time_level - 1)
 		KEY_W, KEY_UP:
 			sub.set_speed_step(sub.speed_step + 1)
 			hud.toast("HELM:  " + sub.speed_label())
@@ -389,7 +427,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			sub.set_speed_step(sub.speed_step - 1)
 			hud.toast("HELM:  " + sub.speed_label())
 		KEY_Z, KEY_PAGEDOWN:
-			sub.set_depth_mode(sub.depth_mode + 1)
+			_on_command("dive")
 		KEY_X, KEY_PAGEUP:
 			sub.set_depth_mode(sub.depth_mode - 1)
 		KEY_B:
@@ -403,11 +441,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			else:
 				hud.toast("EMERGENCY BLOW NEEDS DEPTH  —  DIVE FIRST (Z)")
 		KEY_M:
-			sub.masts_up = not sub.masts_up
-			hud.toast("MASTS " + ("RAISED" if sub.masts_up else "HOUSED"))
+			_on_command("scope")
 		KEY_SPACE:
 			if view == View.CINEMATIC:
 				rig.next_shot()
+			else:
+				_on_command("fire")
 		KEY_H:
 			hud.toggle_help()
 		KEY_U:
@@ -424,6 +463,59 @@ func _unhandled_input(event: InputEvent) -> void:
 		_:
 			if view == View.CINEMATIC:
 				set_view(View.EXTERIOR)
+
+
+func _on_periscope_moved(up: bool) -> void:
+	audio.play("periscope_raise" if up else "periscope_lower", -3.0)
+	hud.toast("PERISCOPE  " + ("RAISING" if up else "LOWERING"))
+
+
+## Shared by keyboard shortcuts and the on-screen conn buttons.
+func _on_command(cmd: String) -> void:
+	match cmd:
+		"surface":
+			sub.set_depth_mode(0)
+		"periscope_depth":
+			sub.set_depth_mode(1)
+		"dive":
+			sub.set_depth_mode(sub.depth_mode + 1)
+		"scope":
+			if not sub.masts_up and sub.depth > 25.0:
+				hud.toast("TOO DEEP TO RAISE THE PERISCOPE  ·  COME TO PERISCOPE DEPTH (P)")
+			else:
+				sub.set_periscope(not sub.masts_up)
+		"view_scope":
+			set_view(View.EXTERIOR if view == View.PERISCOPE else View.PERISCOPE)
+		"fire":
+			if view != View.PERISCOPE:
+				hud.toast("FIRE FROM THE PERISCOPE VIEW  (3)")
+			elif sub.periscope_state() != Submarine.Scope.CLEAR:
+				hud.toast("PERISCOPE NOT CLEAR OF THE WATER  ·  RAISE IT (M) AT PERISCOPE DEPTH (P)")
+			else:
+				encounter.fire()
+		"torpedo_cam":
+			set_view(View.TORPEDO_CAM)
+		"new_target":
+			encounter.reset_target()
+			if view == View.TORPEDO_CAM:
+				set_view(View.EXTERIOR)
+	if cmd != "fire":
+		audio.play("ui_click", -14.0)
+
+
+func _on_target_hit(ship: SurfaceShip) -> void:
+	_set_time_level(0)
+	if view == View.TORPEDO_CAM:
+		rig.watch_target = ship
+		rig.set_mode(CameraRig.Mode.WATCH)
+
+
+func _set_time_level(level: int) -> void:
+	var before := _time_level
+	_time_level = clampi(level, 0, TIME_LEVELS.size() - 1)
+	Engine.time_scale = float(TIME_LEVELS[_time_level])
+	if _time_level != before:
+		hud.toast("TIME  × %d" % int(Engine.time_scale))
 
 
 func _physics_process(_delta: float) -> void:
@@ -450,13 +542,31 @@ func _parse_args() -> void:
 
 func _begin_shot() -> void:
 	var spec: PackedStringArray = _capture[0]
+	if spec[0] == "cont":
+		# Keep the running scenario; optionally switch view, then wait.
+		if spec.size() > 2:
+			set_view(int(spec[2]) as View)
+		_capture_frames = int(spec[1])
+		return
 	weather.set_preset(spec[0], true)
 	var v := int(spec[1])
 	if spec.size() > 4:
 		sub.set_depth_mode(int(spec[4]))
 		sub.depth = float(Submarine.DEPTH_MODES[int(spec[4])]["depth"])
-	if spec.size() > 5 and spec[5] == "blow":
+	var tokens: PackedStringArray = spec[5].split("+") if spec.size() > 5 else PackedStringArray()
+	if "blow" in tokens:
 		sub.emergency_blow()
+	if "near" in tokens:
+		var brg := sub.heading - deg_to_rad(30.0)
+		encounter.target.reset_to(sub.global_position + Vector3(sin(brg), 0.0, -cos(brg)) * 700.0, sub.heading + deg_to_rad(90.0), 8.0)
+	if "scope" in tokens:
+		sub.set_periscope(true)
+		for _i in 40:
+			sub.advance(0.1)
+	if "lower" in tokens:
+		sub.set_periscope(false)
+		for _i in 40:
+			sub.advance(0.1)
 	set_view(v as View)
 	if v == View.CINEMATIC:
 		rig.set_cuts_enabled(false)
@@ -469,6 +579,12 @@ func _begin_shot() -> void:
 		rig.bearing = atan2(target.x, -target.z)
 		rig.zoom_index = 2
 		periscope_ui.call("_set_mode", int(spec[2]) / 10)
+	if "fire" in tokens:
+		var rel := encounter.target.global_position - sub.global_position
+		rig.bearing = atan2(rel.x, -rel.z)
+		encounter.locked = encounter.target
+		encounter.solution = 1.0
+		encounter.fire()
 	_capture_frames = int(spec[3]) if spec.size() > 3 else 30
 
 

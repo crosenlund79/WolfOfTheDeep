@@ -3,7 +3,7 @@ extends Node3D
 ## One main camera with three behaviours: a free orbit around the boat, an
 ## automatic cinematic director, and the optronic mast (periscope) view.
 
-enum Mode { ORBIT, CINEMATIC, PERISCOPE, FIXED }
+enum Mode { ORBIT, CINEMATIC, PERISCOPE, FIXED, FOLLOW, WATCH }
 
 signal shot_changed(shot_name: String)
 
@@ -57,12 +57,29 @@ func _ready() -> void:
 	camera.make_current()
 
 
+var follow_target: Node3D
+var watch_target: Node3D
+var _scope_init := false
+var _watch_t := 0.0
+var _watch_angle := 0.0
+var _follow_pos := Vector3.ZERO
+
+
 func set_mode(m: Mode) -> void:
 	mode = m
 	if m == Mode.PERISCOPE:
-		bearing = sub.heading if sub else 0.0
+		# The scope keeps its last bearing between visits.
+		if not _scope_init:
+			bearing = sub.heading if sub else 0.0
+			_scope_init = true
 		elevation = 0.0
 		_fov_s = float(zoom_levels[zoom_index])
+	elif m == Mode.FOLLOW and follow_target:
+		_follow_pos = follow_target.global_position - (-follow_target.global_transform.basis.z) * 12.0 + Vector3.UP * 2.0
+	elif m == Mode.WATCH and watch_target:
+		_watch_t = 0.0
+		var rel := camera.global_position - watch_target.global_position
+		_watch_angle = atan2(rel.x, rel.z)
 	elif m == Mode.CINEMATIC:
 		_shot_t = 0.0
 		shot_changed.emit(String(SHOTS[_shot]))
@@ -125,7 +142,7 @@ func handle_input(event: InputEvent) -> bool:
 			pitch = clampf(pitch + mm.relative.y * 0.004, -0.75, 1.35)
 			return true
 	elif mode == Mode.PERISCOPE:
-		if event is InputEventMouseMotion:
+		if event is InputEventMouseMotion and _dragging:
 			var mm2 := event as InputEventMouseMotion
 			var k := camera.fov / 60.0
 			bearing += mm2.relative.x * 0.0035 * k
@@ -133,6 +150,9 @@ func handle_input(event: InputEvent) -> bool:
 			return true
 		if event is InputEventMouseButton:
 			var mb2 := event as InputEventMouseButton
+			if mb2.button_index == MOUSE_BUTTON_LEFT or mb2.button_index == MOUSE_BUTTON_RIGHT:
+				_dragging = mb2.pressed
+				return true
 			if mb2.pressed and mb2.button_index == MOUSE_BUTTON_WHEEL_UP:
 				zoom_index = mini(zoom_index + 1, zoom_levels.size() - 1)
 				return true
@@ -152,6 +172,10 @@ func advance(dt: float) -> void:
 			_cinematic(dt)
 		Mode.PERISCOPE:
 			_periscope(dt)
+		Mode.FOLLOW:
+			_follow(dt)
+		Mode.WATCH:
+			_watch(dt)
 		_:
 			pass
 
@@ -173,7 +197,45 @@ func _orbit(dt: float) -> void:
 	camera.fov = lerpf(camera.fov, 52.0, k)
 
 
+func _follow(dt: float) -> void:
+	if follow_target == null or not is_instance_valid(follow_target):
+		return
+	var f := -follow_target.global_transform.basis.z
+	f.y = 0.0
+	f = f.normalized()
+	var right := Vector3(-f.z, 0.0, f.x)
+	var want := follow_target.global_position - f * 11.0 + Vector3.UP * 1.8 + right * 1.6
+	_follow_pos = _follow_pos.lerp(want, 1.0 - exp(-dt * 4.0))
+	var look := follow_target.global_position + f * 25.0
+	camera.global_transform = Transform3D(Basis.looking_at(look - _follow_pos, Vector3.UP), _follow_pos + _shake_offset(dt))
+	camera.fov = lerpf(camera.fov, 64.0, 1.0 - exp(-dt * 3.0))
+
+
+## Slow, low orbit around a stricken ship.
+func _watch(dt: float) -> void:
+	if watch_target == null or not is_instance_valid(watch_target):
+		return
+	_watch_t += dt
+	var ship := watch_target as SurfaceShip
+	var r := (ship.length * 1.9 if ship else 320.0) + _watch_t * 1.5
+	var a := _watch_angle + _watch_t * 0.035
+	var centre := watch_target.global_position
+	centre.y = 0.0
+	var pos := centre + Vector3(sin(a), 0.0, cos(a)) * r
+	pos.y = (ocean.height_at(pos.x, pos.z) if ocean else 0.0) + 9.0
+	var look := centre + Vector3.UP * 10.0
+	camera.global_transform = Transform3D(Basis.looking_at(look - pos, Vector3.UP), pos + _shake_offset(dt))
+	camera.fov = lerpf(camera.fov, 40.0, 1.0 - exp(-dt * 2.0))
+
+
 func _periscope(dt: float) -> void:
+	# Q / E train the scope continuously.
+	var train := 0.0
+	if Input.is_key_pressed(KEY_Q):
+		train -= 1.0
+	if Input.is_key_pressed(KEY_E):
+		train += 1.0
+	bearing += train * dt * deg_to_rad(20.0) * (camera.fov / 42.0)
 	var head := sub.mast_head()
 	var target_fov := float(zoom_levels[zoom_index])
 	_fov_s = lerpf(_fov_s, target_fov, 1.0 - exp(-dt * 7.0))

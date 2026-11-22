@@ -40,7 +40,9 @@ func _ready() -> void:
 
 func advance(dt: float, speed: float, surface_factor: float) -> void:
 	_time += dt
-	if source == null:
+	if source == null or not is_instance_valid(source):
+		source = null
+		_imesh.clear_surfaces()
 		return
 	var p := source.global_position
 	p.y = 0.0

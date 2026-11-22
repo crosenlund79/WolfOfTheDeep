@@ -5,7 +5,11 @@ extends Node3D
 
 signal depth_mode_changed(label: String)
 signal vents_opened
+signal surfacing
 signal breached(strength: float)
+signal periscope_moved(raising: bool)
+
+enum Scope { HOUSED, MOVING, UNDERWATER, CLEAR }
 
 const KNOT := 0.5144
 const SPEED_STEPS := [0.0, 3.0, 6.0, 9.0, 13.0, 18.0]
@@ -13,7 +17,7 @@ const SPEED_NAMES := ["ALL STOP", "AHEAD 1/3", "AHEAD 2/3", "AHEAD STANDARD", "A
 const DEPTH_MODES := [
 	{"label": "SURFACED", "depth": 2.05},
 	{"label": "PERISCOPE DEPTH", "depth": 10.6},
-	{"label": "TRANSIT 40 M", "depth": 40.0},
+	{"label": "DIVE  40 M", "depth": 40.0},
 	{"label": "DEEP 120 M", "depth": 120.0},
 ]
 
@@ -142,15 +146,45 @@ func is_blowing() -> bool:
 
 func set_depth_mode(mode: int) -> void:
 	mode = clampi(mode, 0, DEPTH_MODES.size() - 1)
-	if mode == depth_mode:
+	if mode == depth_mode or _blow:
 		return
 	if depth_mode == 0 and mode > 0:
 		vents_opened.emit()
 		_vent_spray.restart()
 		_vent_spray.emitting = true
+	elif mode == 0 and depth > 3.0:
+		surfacing.emit()
+	# Masts are housed for a deep dive; raise them again at periscope depth.
+	if mode >= 2 and masts_up:
+		set_periscope(false)
 	depth_mode = mode
 	_target_depth = float(DEPTH_MODES[mode]["depth"])
 	depth_mode_changed.emit(String(DEPTH_MODES[mode]["label"]))
+
+
+func set_periscope(up: bool) -> void:
+	if up == masts_up:
+		return
+	masts_up = up
+	periscope_moved.emit(up)
+
+
+## What the optronic mast can see right now.
+func periscope_state() -> Scope:
+	if _mast_ext < 0.05:
+		return Scope.HOUSED
+	if _mast_ext < 0.97:
+		return Scope.MOVING
+	var head := mast_head()
+	var sea := ocean.height_at(head.x, head.z) if ocean else 0.0
+	return Scope.UNDERWATER if head.y < sea + 0.15 else Scope.CLEAR
+
+
+## World transform of the bow torpedo tube (forward = -Z).
+func tube_transform(tube: int) -> Transform3D:
+	var side := -1.0 if tube % 2 == 0 else 1.0
+	var local := Transform3D(Basis.IDENTITY, Vector3(side * 1.0, -1.7, -SubmarineBuilder.L * 0.5 + 6.0))
+	return global_transform * local
 
 
 func depth_label() -> String:
@@ -190,8 +224,8 @@ func advance(dt: float) -> void:
 
 	# Depth change with a believable bow-down / bow-up angle.
 	var dd := _target_depth - depth
-	var max_rate := lerpf(0.35, 1.1, clampf(speed / 6.0, 0.0, 1.0))
-	var want_rate := clampf(dd * 0.08, -max_rate, max_rate)
+	var max_rate := lerpf(1.3, 2.4, clampf(speed / 6.0, 0.0, 1.0))
+	var want_rate := clampf(dd * 0.2, -max_rate, max_rate)
 	var dive_pitch: float
 	if _blow:
 		# Accelerate upward hard, bow high.
@@ -222,9 +256,9 @@ func advance(dt: float) -> void:
 		if absf(_target_depth - depth) < 0.25 and absf(_depth_rate) < 0.2:
 			_recover = false
 	else:
-		_depth_rate = move_toward(_depth_rate, want_rate, dt * 0.12)
+		_depth_rate = move_toward(_depth_rate, want_rate, dt * 0.45)
 		depth += _depth_rate * dt
-		dive_pitch = clampf(-_depth_rate / maxf(speed, 1.5), -0.22, 0.22)
+		dive_pitch = clampf(-_depth_rate / maxf(speed * 1.6, 2.5), -0.2, 0.2)
 
 	# Wave response fades out with depth.
 	var surf := clampf(1.0 - (depth - 2.05) / 7.0, 0.0, 1.0) * (0.0 if _recover else 1.0)
@@ -257,7 +291,7 @@ func advance(dt: float) -> void:
 
 	# Masts.
 	var want_mast := 1.0 if masts_up and depth < 30.0 else 0.0
-	_mast_ext = move_toward(_mast_ext, want_mast, dt * 0.35)
+	_mast_ext = move_toward(_mast_ext, want_mast, dt * 0.45)
 	for key in _masts:
 		var m: Node3D = _masts[key][0]
 		var h := float(_masts[key][1])
