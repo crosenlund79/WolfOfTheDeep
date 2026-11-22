@@ -50,6 +50,8 @@ var _blow := false
 var _recover := false
 var _breach_spray: GPUParticles3D
 var _slam_armed := false
+var _cascade: GPUParticles3D
+var _cascade_t := 0.0
 var _body: Node3D
 
 
@@ -203,6 +205,7 @@ func advance(dt: float) -> void:
 			_breach_spray.global_position = to_global(Vector3(0, 2.0, -24.0))
 			_breach_spray.restart()
 			_breach_spray.emitting = true
+			_cascade_t = 5.0
 			breached.emit(1.0)
 	elif _recover:
 		# Momentum carries the bow out of the water, then the boat falls back and settles.
@@ -276,6 +279,8 @@ func advance(dt: float) -> void:
 	for l in _lights:
 		l.visible = lights_on
 
+	_cascade_t = maxf(_cascade_t - dt, 0.0)
+	_cascade.emitting = _cascade_t > 0.0
 	_bubbles.emitting = depth > 6.0 and speed > 1.0
 	_bubbles.amount_ratio = clampf(speed / 6.0, 0.2, 1.0)
 	_bow_spray.emitting = is_surfaced() and speed > 2.0
@@ -321,7 +326,7 @@ func _build_lights() -> void:
 func _build_particles() -> void:
 	# Breach: a huge burst of white water.
 	_breach_spray = GPUParticles3D.new()
-	_breach_spray.amount = 2600
+	_breach_spray.amount = 3800
 	_breach_spray.lifetime = 4.5
 	_breach_spray.one_shot = true
 	_breach_spray.explosiveness = 0.85
@@ -333,13 +338,13 @@ func _build_particles() -> void:
 	bp.emission_box_extents = Vector3(6.0, 1.0, 16.0)
 	bp.direction = Vector3(0, 1, 0)
 	bp.spread = 55.0
-	bp.initial_velocity_min = 6.0
-	bp.initial_velocity_max = 22.0
+	bp.initial_velocity_min = 4.0
+	bp.initial_velocity_max = 17.0
 	bp.gravity = Vector3(0, -9.8, 0)
 	bp.damping_min = 0.4
 	bp.damping_max = 1.2
-	bp.scale_min = 1.0
-	bp.scale_max = 4.5
+	bp.scale_min = 0.5
+	bp.scale_max = 2.6
 	var bc := Curve.new()
 	bc.add_point(Vector2(0.0, 0.9))
 	bc.add_point(Vector2(0.5, 0.7))
@@ -354,8 +359,30 @@ func _build_particles() -> void:
 	sct.curve = sc
 	bp.scale_curve = sct
 	_breach_spray.process_material = bp
-	_breach_spray.draw_pass_1 = _soft_quad(Vector2(2.6, 2.6), Color(0.93, 0.96, 0.98, 0.6))
+	_breach_spray.draw_pass_1 = _soft_quad(Vector2(1.8, 1.8), Color(0.93, 0.96, 0.98, 0.5))
 	add_child(_breach_spray)
+	# Sheets of water pouring off the casing after a breach.
+	_cascade = GPUParticles3D.new()
+	_cascade.amount = 1800
+	_cascade.lifetime = 1.6
+	_cascade.emitting = false
+	_cascade.local_coords = false
+	_cascade.position = Vector3(0, SubmarineBuilder.DECK_Y, -16.0)
+	_cascade.visibility_aabb = AABB(Vector3(-40, -30, -60), Vector3(80, 60, 120))
+	var cp := ParticleProcessMaterial.new()
+	cp.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	cp.emission_box_extents = Vector3(3.6, 0.6, 20.0)
+	cp.direction = Vector3(0, -1, 0)
+	cp.spread = 30.0
+	cp.initial_velocity_min = 0.5
+	cp.initial_velocity_max = 3.0
+	cp.gravity = Vector3(0, -9.8, 0)
+	cp.scale_min = 0.3
+	cp.scale_max = 1.1
+	cp.alpha_curve = bct
+	_cascade.process_material = cp
+	_cascade.draw_pass_1 = _soft_quad(Vector2(0.9, 0.9), Color(0.85, 0.92, 0.95, 0.45))
+	_body.add_child(_cascade)
 
 	# Ballast-vent spray along the casing when diving.
 	_vent_spray = GPUParticles3D.new()

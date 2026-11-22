@@ -161,7 +161,7 @@ void fragment() {
 		wake = wm.r;
 		churn = wm.g;
 	}
-	float wake_foam = smoothstep(0.08, 0.75, wake * (0.35 + pattern * 1.1 + f2 * 0.35));
+	float wake_foam = smoothstep(0.12, 0.9, wake * (0.2 + pattern * 1.25 + f2 * 0.3));
 	wake_foam = max(wake_foam, smoothstep(0.25, 0.9, churn * (0.6 + f1 * 0.8)));
 
 	// Refraction and the water body.

@@ -127,15 +127,14 @@ func _ready() -> void:
 	room.setup_screens(rig, ocean, ships)
 	room.station_selected.connect(_on_station_selected)
 
-	weather.preset_changed.connect(func(l: String) -> void: hud.toast(l))
-	sub.depth_mode_changed.connect(func(l: String) -> void: hud.toast("DIVING OFFICER:  " + l))
-
 	_parse_args()
 	if _capture.is_empty():
 		weather.set_preset("golden", true)
 		set_view(View.CINEMATIC)
 		rig.set_shot(0)
 		hud.play_title()
+	weather.preset_changed.connect(func(l: String) -> void: hud.toast(l))
+	sub.depth_mode_changed.connect(func(l: String) -> void: hud.toast("DIVING OFFICER:  " + l))
 	sonar_ui.prefill.call_deferred()
 	room.prefill_sonar.call_deferred()
 
@@ -160,7 +159,7 @@ func _on_breach(strength: float) -> void:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://src/fx/foam_burst.gdshader")
 	mat.set_shader_parameter("seed", randf() * 50.0)
-	mat.set_shader_parameter("strength", 0.85)
+	mat.set_shader_parameter("strength", 0.55)
 	disc.material_override = mat
 	disc.layers = WakeTrail.LAYER
 	disc.top_level = true
@@ -168,7 +167,7 @@ func _on_breach(strength: float) -> void:
 	var bow := sub.to_global(Vector3(0, 0, -20.0))
 	disc.global_position = Vector3(bow.x, 0.0, bow.z)
 	var tw := create_tween()
-	tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("strength", v), 0.85, 0.0, 35.0)
+	tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("strength", v), 0.55, 0.0, 35.0)
 	tw.tween_callback(disc.queue_free)
 
 
