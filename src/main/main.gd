@@ -89,6 +89,7 @@ func _ready() -> void:
 	add_child(audio)
 	weather.lightning_struck.connect(audio.thunder)
 	sub.vents_opened.connect(audio.vents)
+	sub.breached.connect(_on_breach)
 
 	var ui := CanvasLayer.new()
 	ui.name = "UI"
@@ -121,6 +122,33 @@ func _ready() -> void:
 	room.prefill_sonar.call_deferred()
 
 
+func _on_breach(strength: float) -> void:
+	rig.shake(strength)
+	audio.splash(strength)
+	# A ring of churned white water left on the surface.
+	var disc := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 30.0 * strength
+	cm.bottom_radius = 30.0 * strength
+	cm.height = 0.1
+	disc.mesh = cm
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(0.9, 1.0, 0.0)
+	mat.no_depth_test = true
+	disc.material_override = mat
+	disc.layers = WakeTrail.LAYER
+	disc.top_level = true
+	wake_map.add_child(disc)
+	var bow := sub.to_global(Vector3(0, 0, -20.0))
+	disc.global_position = Vector3(bow.x, 0.0, bow.z)
+	var tw := create_tween()
+	tw.tween_property(mat, "albedo_color", Color(0.0, 0.0, 0.0), 30.0)
+	tw.tween_callback(disc.queue_free)
+
+
 func _spawn_ships() -> void:
 	var merchant := SurfaceShip.new()
 	merchant.kind = SurfaceShip.Kind.MERCHANT
@@ -142,8 +170,10 @@ func _process(delta: float) -> void:
 	var dt := minf(delta, 0.1)
 	ocean.advance(dt)
 	sub.advance(dt)
+	var night := float(weather.current.get("nav_lights", 0.0)) > 0.5
 	for s in ships:
 		(s as SurfaceShip).advance(dt, sub.position)
+		(s as SurfaceShip).set_night(night)
 	rig.advance(dt)
 	_update_focus()
 	_update_wakes(dt)
@@ -283,6 +313,16 @@ func _unhandled_input(event: InputEvent) -> void:
 			sub.set_depth_mode(sub.depth_mode + 1)
 		KEY_X, KEY_PAGEUP:
 			sub.set_depth_mode(sub.depth_mode - 1)
+		KEY_B:
+			if sub.emergency_blow():
+				if view != View.EXTERIOR and view != View.CINEMATIC:
+					set_view(View.EXTERIOR)
+				if view == View.EXTERIOR:
+					rig.yaw = PI * 0.62
+					rig.pitch = 0.04
+					rig.distance = 150.0
+			else:
+				hud.toast("EMERGENCY BLOW NEEDS DEPTH  —  DIVE FIRST (Z)")
 		KEY_M:
 			sub.masts_up = not sub.masts_up
 			hud.toast("MASTS " + ("RAISED" if sub.masts_up else "HOUSED"))
@@ -332,6 +372,8 @@ func _begin_shot() -> void:
 	if spec.size() > 4:
 		sub.set_depth_mode(int(spec[4]))
 		sub.depth = float(Submarine.DEPTH_MODES[int(spec[4])]["depth"])
+	if spec.size() > 5 and spec[5] == "blow":
+		sub.emergency_blow()
 	set_view(v as View)
 	if v == View.CINEMATIC:
 		rig.set_cuts_enabled(false)

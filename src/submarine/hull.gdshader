@@ -55,9 +55,10 @@ void fragment() {
 		vec2 q = v_world.xz + L.xz / L.y * (-above);
 		float c1 = texture(caustic_tex, q * 0.09 + vec2(ocean_time * 0.03, ocean_time * 0.021)).r;
 		float c2 = texture(caustic_tex, q * 0.13 - vec2(ocean_time * 0.025, -ocean_time * 0.017)).r;
-		float caus = pow(clamp(min(c1, c2) * 2.2, 0.0, 1.0), 3.0);
+		float caus = smoothstep(0.86, 0.99, c1) * 0.6 + smoothstep(0.86, 0.99, c2) * 0.6;
+		caus = caus * caus;
 		float facing = clamp(dot(normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), vec3(0.0, 1.0, 0.0)), 0.0, 1.0);
-		emis = vec3(0.4, 0.75, 0.8) * caus * facing * exp(above * 0.06) * caustic_strength;
+		emis = vec3(0.35, 0.7, 0.75) * caus * facing * exp(above * 0.09) * caustic_strength * 0.6;
 	}
 
 	// Tiles sit at very slightly different angles: subtle broken reflections.

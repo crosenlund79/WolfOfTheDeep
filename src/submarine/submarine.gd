@@ -5,6 +5,7 @@ extends Node3D
 
 signal depth_mode_changed(label: String)
 signal vents_opened
+signal breached(strength: float)
 
 const KNOT := 0.5144
 const SPEED_STEPS := [0.0, 3.0, 6.0, 9.0, 13.0, 18.0]
@@ -18,8 +19,8 @@ const DEPTH_MODES := [
 
 var ocean: Ocean
 var heading := 0.0
-var speed := 3.0 * KNOT
-var speed_step := 2
+var speed := 9.0 * KNOT
+var speed_step := 3
 var rudder := 0.0
 var depth_mode := 0
 var depth := 2.05
@@ -45,6 +46,10 @@ var _vent_spray: GPUParticles3D
 var _bubbles: GPUParticles3D
 var _bow_spray: GPUParticles3D
 var _surfaced_time := 0.0
+var _blow := false
+var _recover := false
+var _breach_spray: GPUParticles3D
+var _slam_armed := false
 var _body: Node3D
 
 
@@ -117,6 +122,22 @@ func knots() -> float:
 	return speed / KNOT
 
 
+## Emergency main ballast blow: a staged, spectacular bow-first breach.
+func emergency_blow() -> bool:
+	if depth < 18.0 or _blow or _recover:
+		return false
+	_blow = true
+	depth_mode = 0
+	_target_depth = float(DEPTH_MODES[0]["depth"])
+	vents_opened.emit()
+	depth_mode_changed.emit("EMERGENCY BLOW  —  ALL MAIN BALLAST")
+	return true
+
+
+func is_blowing() -> bool:
+	return _blow or _recover
+
+
 func set_depth_mode(mode: int) -> void:
 	mode = clampi(mode, 0, DEPTH_MODES.size() - 1)
 	if mode == depth_mode:
@@ -169,12 +190,41 @@ func advance(dt: float) -> void:
 	var dd := _target_depth - depth
 	var max_rate := lerpf(0.35, 1.1, clampf(speed / 6.0, 0.0, 1.0))
 	var want_rate := clampf(dd * 0.08, -max_rate, max_rate)
-	_depth_rate = move_toward(_depth_rate, want_rate, dt * 0.12)
-	depth += _depth_rate * dt
-	var dive_pitch := clampf(-_depth_rate / maxf(speed, 1.5), -0.22, 0.22)
+	var dive_pitch: float
+	if _blow:
+		# Accelerate upward hard, bow high.
+		_depth_rate = move_toward(_depth_rate, -6.5, dt * 0.9)
+		depth += _depth_rate * dt
+		dive_pitch = clampf(-_depth_rate / 9.0, 0.0, 0.5)
+		if depth < 5.0:
+			_blow = false
+			_recover = true
+			_slam_armed = true
+			_breach_spray.global_position = to_global(Vector3(0, 2.0, -24.0))
+			_breach_spray.restart()
+			_breach_spray.emitting = true
+			breached.emit(1.0)
+	elif _recover:
+		# Momentum carries the bow out of the water, then the boat falls back and settles.
+		var acc := (_target_depth - depth) * 0.9 - _depth_rate * 0.9
+		_depth_rate += acc * dt
+		depth += _depth_rate * dt
+		dive_pitch = clampf(-_depth_rate / 9.0, -0.12, 0.5)
+		if _slam_armed and _depth_rate > 1.2:
+			_slam_armed = false
+			_breach_spray.global_position = to_global(Vector3(0, 0.5, -28.0))
+			_breach_spray.restart()
+			_breach_spray.emitting = true
+			breached.emit(0.7)
+		if absf(_target_depth - depth) < 0.25 and absf(_depth_rate) < 0.2:
+			_recover = false
+	else:
+		_depth_rate = move_toward(_depth_rate, want_rate, dt * 0.12)
+		depth += _depth_rate * dt
+		dive_pitch = clampf(-_depth_rate / maxf(speed, 1.5), -0.22, 0.22)
 
 	# Wave response fades out with depth.
-	var surf := clampf(1.0 - (depth - 2.05) / 7.0, 0.0, 1.0)
+	var surf := clampf(1.0 - (depth - 2.05) / 7.0, 0.0, 1.0) * (0.0 if _recover else 1.0)
 	var want_heave := 0.0
 	var want_pitch := 0.0
 	var want_roll := 0.0
@@ -193,7 +243,8 @@ func advance(dt: float) -> void:
 	want_roll += -rudder * clampf(speed / 8.0, 0.0, 1.0) * 0.05
 	_heave_v += ((want_heave - _heave) * 3.2 - _heave_v * 2.2) * dt
 	_heave += _heave_v * dt
-	_pitch_v += ((want_pitch + dive_pitch - _pitch) * 2.6 - _pitch_v * 2.0) * dt
+	var pk := 6.0 if (_blow or _recover) else 2.6
+	_pitch_v += ((want_pitch * (0.3 if _recover else 1.0) + dive_pitch - _pitch) * pk - _pitch_v * 2.0) * dt
 	_pitch += _pitch_v * dt
 	_roll_v += ((want_roll - _roll) * 2.2 - _roll_v * 1.1) * dt
 	_roll += _roll_v * dt
@@ -268,6 +319,44 @@ func _build_lights() -> void:
 
 
 func _build_particles() -> void:
+	# Breach: a huge burst of white water.
+	_breach_spray = GPUParticles3D.new()
+	_breach_spray.amount = 2600
+	_breach_spray.lifetime = 4.5
+	_breach_spray.one_shot = true
+	_breach_spray.explosiveness = 0.85
+	_breach_spray.emitting = false
+	_breach_spray.local_coords = false
+	_breach_spray.visibility_aabb = AABB(Vector3(-80, -20, -80), Vector3(160, 90, 160))
+	var bp := ParticleProcessMaterial.new()
+	bp.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	bp.emission_box_extents = Vector3(6.0, 1.0, 16.0)
+	bp.direction = Vector3(0, 1, 0)
+	bp.spread = 55.0
+	bp.initial_velocity_min = 6.0
+	bp.initial_velocity_max = 22.0
+	bp.gravity = Vector3(0, -9.8, 0)
+	bp.damping_min = 0.4
+	bp.damping_max = 1.2
+	bp.scale_min = 1.0
+	bp.scale_max = 4.5
+	var bc := Curve.new()
+	bc.add_point(Vector2(0.0, 0.9))
+	bc.add_point(Vector2(0.5, 0.7))
+	bc.add_point(Vector2(1.0, 0.0))
+	var bct := CurveTexture.new()
+	bct.curve = bc
+	bp.alpha_curve = bct
+	var sc := Curve.new()
+	sc.add_point(Vector2(0.0, 0.5))
+	sc.add_point(Vector2(1.0, 1.6))
+	var sct := CurveTexture.new()
+	sct.curve = sc
+	bp.scale_curve = sct
+	_breach_spray.process_material = bp
+	_breach_spray.draw_pass_1 = _soft_quad(Vector2(2.6, 2.6), Color(0.93, 0.96, 0.98, 0.6))
+	add_child(_breach_spray)
+
 	# Ballast-vent spray along the casing when diving.
 	_vent_spray = GPUParticles3D.new()
 	_vent_spray.amount = 900

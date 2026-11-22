@@ -5,7 +5,7 @@ This is the **master template**, not an active game. Complete it collaboratively
 ## Game decisions (user-confirmed only)
 
 - **Game title:** Undecided
-- **Godot version (pin minor, e.g. 4.x):** Undecided
+- **Godot version (pin minor, e.g. 4.x):** 4.7.x for Visual Prototype 001 (user instruction, 2026-11-22); the long-term pin remains part of the unapproved design decisions
 - **Premise / core player loop:** Undecided
 - **Perspective / art direction:** Undecided
 - **Confirmed mechanics and constraints:** None
@@ -17,15 +17,15 @@ This is the **master template**, not an active game. Complete it collaboratively
 
 ## Current approved development objective
 
-**Status: None.** This heading records an objective *after* the user approves it in conversation; it is not an instruction to implement, and a later task needs fresh approval.
+**Status: Approved in conversation, 2026-11-22 — Visual Prototype 001 "Silent Sea".** This heading records an objective *after* the user approves it in conversation; it is not an instruction to implement, and a later task needs fresh approval.
 
-- **User approval (reference / summary):** None
-- **Objective (one by default):** None
-- **In scope:** None
-- **Out of scope:** None
-- **Acceptance criteria / done when:** None
-- **Relevant module tests:** None
-- **Relevant integration/manual checks:** None
+- **User approval (reference / summary):** User asked to "create Visual Prototype 001" to judge the look and feel of a modern submarine simulator before investing in mechanics; research report kept as reference; the 17 design decisions in the feasibility report are explicitly **not** approved.
+- **Objective (one by default):** A visual prototype: convincing modern submarine, atmospheric 3D ocean, lighting and weather, immersive presentation (exterior camera, periscope view, sonar/tactical displays, small command room). Cosmetic or staged behaviour.
+- **In scope:** Visuals and presentation; Godot 4.7.x; separate working branch; source plus a portable Windows x64 build produced by GitHub Actions (export preset and workflow approved for this objective).
+- **Out of scope:** Acoustic duel, sonar physics, weapons simulation, enemy AI, campaign systems, complex architecture.
+- **Acceptance criteria / done when:** The prototype launches and can be explored; the user judges it visually.
+- **Relevant module tests:** Approved exception: no module test suite for this prototype ("no deep testing"); a headless launch smoke check only.
+- **Relevant integration/manual checks:** User's visual review of the Windows build.
 
 ## Proposals awaiting user approval
 

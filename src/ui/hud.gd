@@ -132,8 +132,8 @@ VIEWS        1  Cinematic director     2  Exterior orbit
              5  Sonar / tactical       Tab  cycle views
 CAMERA       Drag mouse to orbit · Wheel to zoom
              (mast: mouse to train · wheel to zoom · T sensor · Space mark)
-BOAT         W / S  telegraph     A / D  rudder
-             Z  dive one step     X  rise one step     M  masts
+BOAT         W / S  telegraph     A / D  rudder     M  masts
+             Z  dive one step     X  rise one step     B  emergency blow
 WEATHER      F1 Atlantic dawn   F2 Clear   F3 Golden hour
              F4 Gale            F5 Moonlit night       N  next
 DISPLAY      U  hide interface   F11  fullscreen   Esc  pause / quit

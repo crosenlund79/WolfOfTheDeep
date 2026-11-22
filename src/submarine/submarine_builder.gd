@@ -129,8 +129,8 @@ static func build_hull_mesh(hull_mat: Material) -> ArrayMesh:
 	for k in 4:
 		var ang := deg_to_rad(45.0 + 90.0 * k)
 		var span_dir := Vector3(sin(ang), -cos(ang), 0.0)
-		var root2 := span_dir * 1.5 + Vector3(0, 0, fin_le)
-		var f2 := fin(root2, span_dir, Vector3(0, 0, 1), 3.05, 5.2, 3.0, 1.9, 0.12)
+		var root2 := span_dir * 1.4 + Vector3(0, 0, fin_le + 0.6)
+		var f2 := fin(root2, span_dir, Vector3(0, 0, 1), 2.55, 4.6, 2.9, 1.3, 0.12)
 		ParamMesh.add_to(mesh, ParamMesh.surface(f2, fin_uv, 18, 28), hull_mat)
 	ParamMesh.add_to(mesh, ParamMesh.surface(duct_point, duct_uv, 72, 28), hull_mat)
 	# Fixed stator vanes inside the shroud.

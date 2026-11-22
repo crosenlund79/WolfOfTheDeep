@@ -54,7 +54,21 @@ func vents() -> void:
 		return
 	var p: AudioStreamPlayer = _players["vents"]
 	p.volume_db = -6.0
+	p.pitch_scale = 1.0
 	p.play()
+
+
+func splash(strength: float) -> void:
+	if not _ready_flag:
+		return
+	var p: AudioStreamPlayer = _players["thunder"]
+	p.volume_db = lerpf(-8.0, 0.0, strength)
+	p.pitch_scale = 1.6
+	p.play()
+	var v: AudioStreamPlayer = _players["vents"]
+	v.volume_db = lerpf(-10.0, -2.0, strength)
+	v.pitch_scale = 0.7
+	v.play()
 
 
 func update_state(view: int, sub: Submarine, weather: Weather, cam_depth: float) -> void:

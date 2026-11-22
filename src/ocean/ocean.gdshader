@@ -91,8 +91,13 @@ void vertex() {
 
 float linear_depth(vec2 uv, mat4 inv_proj) {
 	float d = texture(depth_tex, uv).r;
+	// Reverse-Z: 0 means nothing was drawn behind the water (open ocean / sky).
+	if (d <= 1e-7) {
+		return 1e6;
+	}
 	vec4 v = inv_proj * vec4(uv * 2.0 - 1.0, d, 1.0);
-	return -v.z / v.w;
+	float z = -v.z / v.w;
+	return (z > 0.0 && z < 1e6) ? z : 1e6;
 }
 
 void fragment() {
@@ -123,8 +128,8 @@ void fragment() {
 	vec3 d1 = texture(normal_a, p * 0.055 + wd * t * 0.032).xyz * 2.0 - 1.0;
 	vec3 d2 = texture(normal_b, p * 0.13 + wp_ * t * 0.045 + wd * t * 0.02).xyz * 2.0 - 1.0;
 	vec3 d3 = texture(normal_a, p * 0.011 - wp_ * t * 0.006 + wd * t * 0.01).xyz * 2.0 - 1.0;
-	float near_f = 1.0 - smoothstep(40.0, 700.0, dist);
-	float mid_f = 1.0 - smoothstep(300.0, 5000.0, dist);
+	float near_f = 1.0 - smoothstep(25.0, 260.0, dist);
+	float mid_f = 1.0 - smoothstep(150.0, 1800.0, dist);
 	vec2 dn = (d1.xy * 0.6 + d2.xy * 0.45) * detail_strength * near_f + d3.xy * detail_strength * 0.6 * mid_f;
 	n = normalize(vec3(n.x + dn.x, n.y, n.z + dn.y));
 
@@ -135,15 +140,18 @@ void fragment() {
 	float fresnel = 0.02 + 0.98 * pow(1.0 - NdotV, 5.0);
 
 	// Foam: crests where the surface compresses, plus the wake map.
-	vec2 fuv = p * 0.045 + wd * t * 0.018;
+	vec2 fuv = p * 0.06 + wd * t * 0.018;
 	float f1 = texture(foam_tex, fuv).r;
-	float f2 = texture(foam_tex, p * 0.16 - wd * t * 0.03 + vec2(0.37, 0.11)).r;
-	float pattern = smoothstep(0.32, 0.78, f1 * 0.62 + f2 * 0.5);
-	float crest = clamp((0.62 + foam_amount * 0.35 - v_jac) * (2.2 + foam_amount * 2.0), 0.0, 1.0);
-	float crest_foam = crest * mix(pattern, 1.0, crest * 0.45) * smoothstep(-0.1, 0.4, v_height / max(wave_scale, 0.2) + 0.3);
-	// Wind streaks across the surface in heavy weather.
-	float streak = texture(foam_tex, vec2(dot(p, wd) * 0.004, dot(p, wp_) * 0.06) + wd * t * 0.004).r;
-	crest_foam += smoothstep(0.62, 0.9, streak) * foam_amount * foam_amount * 0.35 * near_f;
+	float f2 = texture(foam_tex, p * 0.21 - wd * t * 0.03 + vec2(0.37, 0.11)).r;
+	// Lace: bright bubble webs, densest where both scales agree.
+	float pattern = smoothstep(0.45, 0.85, f1 * 0.55 + f2 * 0.6);
+	// Surface compression (1 - Jacobian) marks breaking crests.
+	float thr = mix(0.42, 0.14, foam_amount);
+	float crest = smoothstep(thr, thr + 0.28, 1.0 - v_jac);
+	float crest_foam = crest * mix(pattern, 1.0, crest * crest) * smoothstep(-0.1, 0.4, v_height / max(wave_scale, 0.2) + 0.3);
+	crest_foam = clamp(crest_foam, 0.0, 1.0);
+	// Old foam drifting on the surface in heavy weather.
+	crest_foam += smoothstep(0.9, 0.98, f2) * smoothstep(0.6, 0.9, f1) * foam_amount * foam_amount * 0.35 * mid_f;
 
 	float wake = 0.0;
 	float churn = 0.0;

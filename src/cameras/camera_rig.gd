@@ -84,6 +84,18 @@ func set_shot(index: int) -> void:
 	shot_changed.emit(String(SHOTS[_shot]))
 
 
+func shake(amount: float) -> void:
+	_shake = maxf(_shake, amount)
+
+
+func _shake_offset(dt: float) -> Vector3:
+	_shake = maxf(_shake - dt * 0.6, 0.0)
+	if _shake <= 0.0:
+		return Vector3.ZERO
+	var t := Time.get_ticks_msec() * 0.001
+	return Vector3(sin(t * 37.0), sin(t * 29.0 + 1.0), sin(t * 41.0 + 2.0)) * _shake * _shake * 0.6
+
+
 func set_cuts_enabled(v: bool) -> void:
 	_cuts_enabled = v
 
@@ -154,6 +166,7 @@ func _orbit(dt: float) -> void:
 	if ocean and _pitch_s > -0.02:
 		var h := ocean.height_at(pos.x, pos.z)
 		pos.y = maxf(pos.y, h + 1.2)
+	pos += _shake_offset(dt)
 	camera.global_transform = Transform3D(Basis.looking_at(target - pos, Vector3.UP), pos)
 	camera.fov = lerpf(camera.fov, 52.0, k)
 
@@ -188,7 +201,8 @@ func _cinematic(dt: float) -> void:
 	match String(SHOTS[_shot]):
 		"waterline_track":
 			pos = s + fwd * lerpf(30.0, -10.0, u) + right * 24.0
-			pos.y = (ocean.height_at(pos.x, pos.z) if ocean else 0.0) + 1.1
+			var sea := ocean.waves.significant_height if ocean else 1.0
+			pos.y = (ocean.height_at(pos.x, pos.z) if ocean else 0.0) + 1.1 + sea * 0.45
 			look = s + fwd * lerpf(-6.0, -24.0, u) + up * 3.0
 			fov = 46.0
 		"high_orbit":
@@ -201,8 +215,6 @@ func _cinematic(dt: float) -> void:
 			pos.y = (ocean.height_at(pos.x, pos.z) if ocean else 0.0) + 2.0
 			look = s + fwd * 10.0 + up * 3.5
 			fov = 30.0
-			dof = true
-			dof_dist = 90.0
 		"sail_close":
 			var a2 := lerpf(0.35, -0.35, u)
 			pos = s + fwd * (-12.0) + (right * cos(a2) + fwd * sin(a2)) * 22.0 + up * (SubmarineBuilder.SAIL_TOP + 2.0 - sub.depth)
@@ -229,7 +241,7 @@ func _cinematic(dt: float) -> void:
 	# Hand-held drift.
 	var t := Time.get_ticks_msec() * 0.001
 	var drift := Vector3(sin(t * 0.7 + _seed), sin(t * 0.53 + 1.3) * 0.6, cos(t * 0.61)) * 0.35
-	pos += drift
+	pos += drift + _shake_offset(dt)
 	camera.global_transform = Transform3D(Basis.looking_at((look - pos).normalized(), Vector3.UP), pos)
 	camera.fov = fov
 	_attrs.dof_blur_far_enabled = dof

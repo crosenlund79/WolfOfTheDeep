@@ -78,7 +78,13 @@ func advance(dt: float, around: Vector3) -> void:
 	basis = Basis(Vector3.UP, -heading) * Basis(Vector3.RIGHT, _pitch) * Basis(Vector3.FORWARD, _roll)
 
 
+var _night := false
+
+
 func set_night(on: bool) -> void:
+	if on == _night:
+		return
+	_night = on
 	for l in _lights:
 		l.visible = on
 	if _windows_mat:

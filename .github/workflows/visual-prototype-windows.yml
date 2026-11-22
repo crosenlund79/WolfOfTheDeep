@@ -1,0 +1,66 @@
+# Builds the portable Windows x64 package of Visual Prototype 001 (Silent Sea).
+# Approved by the user for this prototype; produces a downloadable workflow
+# artifact only (no release publishing).
+name: Silent Sea · Windows x64 build
+
+on:
+  push:
+    branches: ["claude/visual-prototype-001-silent-sea"]
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: "4.7.2"
+
+jobs:
+  windows-x64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot editor and export templates
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}-stable-linux
+
+      - name: Download Godot ${{ env.GODOT_VERSION }} and export templates
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          mkdir -p ~/godot "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          curl -sSL -o /tmp/godot.zip "$base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q /tmp/godot.zip -d ~/godot
+          mv ~/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 ~/godot/godot
+          curl -sSL -o /tmp/templates.tpz "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q /tmp/templates.tpz -d /tmp/tpl
+          mv /tmp/tpl/templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+
+      - name: Import project
+        run: ~/godot/godot --headless --path . --import
+
+      - name: Launch smoke check (headless, 150 frames)
+        run: |
+          timeout 180 ~/godot/godot --headless --path . --quit-after 150 2>&1 | tee smoke.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error" smoke.log; then exit 1; fi
+
+      - name: Export Windows x64 (portable, single executable)
+        run: |
+          set -euo pipefail
+          mkdir -p build/SilentSea
+          ~/godot/godot --headless --path . --export-release "Windows Desktop" build/SilentSea/SilentSea.exe
+          test -s build/SilentSea/SilentSea.exe
+          cp docs/VISUAL_PROTOTYPE_001.md build/SilentSea/README.md
+          ls -la build/SilentSea
+
+      - name: Upload portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: SilentSea-VisualPrototype001-windows-x64
+          path: build/SilentSea
+          if-no-files-found: error
+          retention-days: 30

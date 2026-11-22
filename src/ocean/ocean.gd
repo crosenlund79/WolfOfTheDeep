@@ -137,17 +137,24 @@ static func _noise_normal(size: int, freq: float, octaves: int, seed_value: int)
 
 
 static func _foam_texture() -> NoiseTexture2D:
+	# Lacy foam: warped cellular edges give the web of bubbles left by a breaking crest.
 	var noise := FastNoiseLite.new()
 	noise.noise_type = FastNoiseLite.TYPE_CELLULAR
-	noise.frequency = 0.03
+	noise.frequency = 0.045
+	noise.cellular_distance_function = FastNoiseLite.DISTANCE_EUCLIDEAN
 	noise.cellular_return_type = FastNoiseLite.RETURN_DISTANCE2_SUB
 	noise.fractal_type = FastNoiseLite.FRACTAL_FBM
-	noise.fractal_octaves = 3
+	noise.fractal_octaves = 4
+	noise.fractal_gain = 0.6
+	noise.domain_warp_enabled = true
+	noise.domain_warp_amplitude = 18.0
+	noise.domain_warp_frequency = 0.02
 	noise.seed = 5
 	var tex := NoiseTexture2D.new()
 	tex.width = 512
 	tex.height = 512
 	tex.seamless = true
 	tex.generate_mipmaps = true
+	tex.invert = true
 	tex.noise = noise
 	return tex
