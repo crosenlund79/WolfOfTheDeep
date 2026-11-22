@@ -159,6 +159,8 @@ func _build_help() -> void:
 
 VIEWS      1 control room  2 periscope  3 exterior  4 sonar  5 chart
            6 mess  7 cabin  8 engine room  9 torpedo cam  0 cinematic
+CONTROL    Q / E viewpoint (command, sonar, navigation, overview)
+ROOM       click a station  ·  right-click back  ·  R red lighting
 HELM       A / D  course -10 / +10 (Shift: 1)   W / S  telegraph
 DEPTH      O  surface  P  periscope depth  Z  deeper  X  shallower
            M  raise / lower masts   B  emergency blow (40 m or deeper)
@@ -292,6 +294,8 @@ func _hint_line(v: int) -> String:
 			return "DRAG or Q/E  TRAIN   ·   WHEEL  ZOOM   ·   T  SENSOR   ·   M  MASTS   ·   P  PERISCOPE DEPTH   ·   TAB  ORDERS   ·   H  HELP"
 		4:
 			return "CLICK  STEER FOR   ·   SHIFT+CLICK  WAYPOINT   ·   RIGHT-DRAG  PAN   ·   WHEEL  ZOOM   ·   C  CENTRE   ·   TAB  ORDERS   ·   H  HELP"
+		0:
+			return "Q / E  VIEWPOINT   ·   CLICK A STATION   ·   RIGHT-CLICK  BACK   ·   R  RED LIGHTING   ·   2  PERISCOPE   ·   3  EXTERIOR   ·   TAB  ORDERS   ·   H  HELP"
 		5, 6, 7:
 			return "CLICK PEOPLE TO TALK   ·   CLICK THINGS TO USE THEM   ·   1  CONTROL ROOM   ·   TAB  ORDERS   ·   L  LOG   ·   H  HELP"
 		_:

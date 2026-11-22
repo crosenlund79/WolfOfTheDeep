@@ -27,6 +27,15 @@ This brief now records the active game, Wolf of the Deep. This file **records** 
 - **Acceptance criteria / done when:** A playable patrol with an achievable resolution; spoiler-free delivery notes; Windows artifact link, launch instructions, controls and limitations provided.
 - **Relevant checks:** Headless launch; simulated patrol; card-engine and sound-resolution checks; software-rendered screenshots of the main views.
 
+## Experiment in progress (branch `claude/control-room-pilot`)
+
+**Status: Approved in conversation, 2026-11-22 — Mission 004C "The Control Room — Visual Quality Pilot"** (experiment; not to be merged automatically). The earlier 2D cutaway experiment (`claude/interior-rework-experiment`) was rejected by the user and is not built upon.
+
+- **Baseline:** commit `cc666aa` (Mission 003 + Esc fix); remote backup branch `backup/pre-interior-rework-004`.
+- **Objective:** one convincing, realistic control room that belongs with the exterior; fixed viewpoints with transitions; restrained crew presence; existing gameplay, audio, dialogue and exterior preserved.
+- **Chosen technique (Claude's proposal for the user to judge):** hybrid — the room modelled and path-traced offline (Blender/Cycles via `tools/interior/`), composited in Godot with live displays, lamps, red lighting and subtle motion.
+- **Checks:** `tests/check_control_room.gd` (run with `--fixed-fps 30`), plus the existing checks.
+
 ## Proposals awaiting user approval
 
 None. Keep proposals clearly separate from confirmed decisions and active work. Do not promote them to tasks automatically.

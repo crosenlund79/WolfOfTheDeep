@@ -47,7 +47,7 @@ The crew's sweets, relationships and memories are kept between sessions in your 
 
 **Rooms:** move the mouse to look around. Click a person to talk to them. Click things: the coffee, the card table, your bunk, the logbook.
 
-**Control room:** click the screens (periscope feed, sonar, ship control). **R** toggles red lighting.
+**Control room (experiment build):** a new path-traced control room seen from fixed viewpoints. **Q / E** change viewpoint, click a station to use it, **R** toggles red lighting. See `README_CONTROL_ROOM_PILOT.md`.
 
 **Card table:** **Space** shows the next player's action · **F** fold · **C** check / call · **R** raise · **P** bet the pot · **A** all in · **Esc** leave.
 

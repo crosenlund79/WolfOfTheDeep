@@ -58,6 +58,8 @@ var engine_room: EngineRoom
 var conn: ConnPanel
 var menu: MenuPanel
 var poker: PokerTable
+## Mission 004C pilot: the control room as path-traced plates with live layers.
+var pilot: ControlRoomPilot
 
 var view := View.CINEMATIC
 var started := false
@@ -306,6 +308,19 @@ func _build_ui() -> void:
 	chart.rv_point = patrol.rv
 	ui.add_child(chart)
 	chart.visible = false
+	pilot = ControlRoomPilot.new()
+	pilot.sub = sub
+	pilot.crew = crew
+	pilot.clock = clock
+	pilot.sensors = sensors
+	pilot.area = area
+	pilot.ships = ships
+	pilot.rig = rig
+	pilot.weather = weather
+	pilot.sector_center = patrol.sector_center
+	pilot.sector_radius = patrol.sector_radius
+	pilot.rv_point = patrol.rv
+	ui.add_child(pilot)
 	poker = PokerTable.new()
 	poker.crew = crew
 	ui.add_child(poker)
@@ -355,6 +370,7 @@ func _connect_signals() -> void:
 	encounter.target_hit.connect(_on_target_hit)
 	chart.course_ordered.connect(_on_course_ordered)
 	room.station_selected.connect(_on_station_selected)
+	pilot.request.connect(_on_pilot_request)
 	menu.chosen.connect(_on_menu)
 	poker.finished.connect(_on_poker_finished)
 	conn.command.connect(_on_command)
@@ -424,8 +440,7 @@ func _process(delta: float) -> void:
 		View.ENGINE:
 			hov = engine_room.hovered_text()
 		View.CONTROL:
-			var f := room.hovered_figure()
-			hov = f.display_name if f else ""
+			hud.set_view_name(pilot.view_name())
 	hud.set_hover(hov if not menu.visible and not poker.visible else "")
 	if not _capture.is_empty():
 		_capture_step()
@@ -886,6 +901,22 @@ func _on_room_clicked(kind: String, what: String) -> void:
 			_open_log()
 
 
+## The control room pilot asks to leave for another station or screen.
+func _on_pilot_request(action: String) -> void:
+	match action:
+		"periscope":
+			set_view(View.PERISCOPE)
+		"exterior":
+			set_view(View.EXTERIOR)
+		"orders":
+			_open_orders()
+		"sonar_full":
+			set_view(View.SONAR)
+		"chart_full":
+			set_view(View.CHART)
+	audio.play("ui_click", -14.0)
+
+
 func _on_station_selected(kind: String) -> void:
 	if kind.begins_with("talk:"):
 		_talk(kind.substr(5))
@@ -945,11 +976,16 @@ func set_view(v: View) -> void:
 	sonar_ui.visible = v == View.SONAR
 	chart.visible = v == View.CHART
 	conn.visible = v == View.EXTERIOR or v == View.PERISCOPE or v == View.TORPEDO_CAM
-	room.set_active(v == View.CONTROL)
+	# The control room is presented by the pilot (the 3D room stays dormant).
+	room.set_active(false)
+	var entering_pilot := v == View.CONTROL and not pilot.visible
+	pilot.visible = v == View.CONTROL
+	if entering_pilot:
+		pilot.enter("command")
 	mess.set_active(v == View.MESS)
 	cabin.set_active(v == View.CABIN)
 	engine_room.set_active(v == View.ENGINE)
-	get_viewport().disable_3d = v == View.SONAR or v == View.CHART or asleep
+	get_viewport().disable_3d = v == View.SONAR or v == View.CHART or v == View.CONTROL or asleep
 	RenderingServer.global_shader_parameter_set("thermal_mode", 0.0)
 	match v:
 		View.CINEMATIC:
@@ -965,14 +1001,11 @@ func set_view(v: View) -> void:
 		View.TORPEDO_CAM:
 			rig.set_mode(CameraRig.Mode.FOLLOW)
 			rig.camera.make_current()
-		View.CONTROL:
-			rig.set_mode(CameraRig.Mode.FIXED)
-			room.camera.make_current()
 		_:
 			rig.set_mode(CameraRig.Mode.FIXED)
 	_place_crew()
 	if hud:
-		hud.set_view_name(VIEW_NAMES[v])
+		hud.set_view_name(pilot.view_name() if v == View.CONTROL else VIEW_NAMES[v])
 
 
 func _update_focus() -> void:
@@ -1105,7 +1138,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if view == View.SONAR and sonar_ui.handle_input(event):
 		return
-	if view == View.CONTROL and room.handle_input(event):
+	if view == View.CONTROL and pilot.handle_key(event):
 		return
 	if view == View.MESS and mess.handle_input(event):
 		return
@@ -1719,6 +1752,12 @@ func _begin_shot() -> void:
 					_sim_step(0.5)
 	set_view(v as View)
 	for tok in tokens:
+		if tok.begins_with("cr="):
+			pilot.enter(tok.substr(3))
+		if tok == "red":
+			pilot.rig_for_red = true
+		if tok == "clean":
+			pilot.show_hover = false
 		match tok:
 			"poker":
 				clock.seconds = float(int(clock.seconds / 86400.0)) * 86400.0 + 20.0 * 3600.0

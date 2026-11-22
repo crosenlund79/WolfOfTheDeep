@@ -1,12 +1,12 @@
 # Builds the portable Windows x64 package of Wolf of the Deep
-# (currently Development Mission 003 "A Living Submarine", Patrol One).
+# EXPERIMENT branch (Mission 004C): control room visual quality pilot.
 # Approved by the user for these playtest builds; produces a downloadable
 # workflow artifact only (no release publishing, no installer).
-name: Wolf of the Deep · Windows x64 build
+name: Wolf of the Deep · EXPERIMENT (control room pilot) · Windows x64 build
 
 on:
   push:
-    branches: ["claude/mission-003-living-submarine"]
+    branches: ["claude/control-room-pilot"]
   workflow_dispatch:
 
 env:
@@ -53,7 +53,10 @@ jobs:
         run: |
           timeout 300 ~/godot/godot --headless --path . -s tests/check_poker.gd 2>&1 | tee checks.log
           timeout 120 ~/godot/godot --headless --path . -s tests/check_audio.gd 2>&1 | tee -a checks.log
+          timeout 180 ~/godot/godot --headless --path . -s tests/check_pause.gd 2>&1 | tee -a checks.log
+          timeout 300 ~/godot/godot --headless --path . --fixed-fps 30 -s tests/check_control_room.gd 2>&1 | tee -a checks.log
           grep -q "POKER CHECK: PASS" checks.log && grep -q "AUDIO CHECK: PASS" checks.log
+          grep -q "PAUSE CHECK: PASS" checks.log && grep -q "CONTROL ROOM CHECK: PASS" checks.log
 
       - name: Export Windows x64 (portable, single executable)
         run: |
@@ -63,6 +66,7 @@ jobs:
           test -s build/WolfOfTheDeep/WolfOfTheDeep.exe
           cp docs/MISSION_003.md build/WolfOfTheDeep/README.md
           cp docs/AUDIO_LIBRARY.md build/WolfOfTheDeep/AUDIO_LIBRARY.md
+          cp docs/CONTROL_ROOM_PILOT.md build/WolfOfTheDeep/README_CONTROL_ROOM_PILOT.md
           # External folder for user sound overrides (read at startup, no rebuild).
           mkdir -p build/WolfOfTheDeep/custom/audio
           cp docs/AUDIO_LIBRARY.md build/WolfOfTheDeep/custom/audio/PUT_YOUR_SOUNDS_HERE.txt
@@ -71,7 +75,7 @@ jobs:
       - name: Upload portable build
         uses: actions/upload-artifact@v4
         with:
-          name: WolfOfTheDeep-Mission003-PatrolOne-windows-x64
+          name: WolfOfTheDeep-EXPERIMENT-ControlRoomPilot-windows-x64
           path: build/WolfOfTheDeep
           if-no-files-found: error
           retention-days: 30
