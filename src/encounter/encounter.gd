@@ -29,6 +29,7 @@ var tube := 0
 var fired := 0
 var hits := 0
 var _trails: Dictionary = {}
+var last_contact := ""
 
 
 func setup(p_world: Node3D, p_target: SurfaceShip) -> void:
@@ -49,7 +50,8 @@ func reset_target() -> void:
 	var pos := sub.global_position + Vector3(sin(brg), 0.0, -cos(brg)) * rng
 	target.reset_to(pos, sub.heading + deg_to_rad(88.0), 9.0)
 	solution = 0.0
-	message.emit("NEW CONTACT  ·  MERCHANT BEARING %03d  ·  1.7 KM  ·  CROSSING LEFT TO RIGHT" % int(fposmod(rad_to_deg(brg), 360.0)))
+	last_contact = "NEW CONTACT  ·  MERCHANT BEARING %03d  ·  1.7 KM  ·  CROSSING LEFT TO RIGHT" % int(fposmod(rad_to_deg(brg), 360.0))
+	message.emit(last_contact)
 
 
 func torpedo_running() -> Torpedo:

@@ -10,7 +10,7 @@ signal ran_out
 const RUN_SPEED := 26.0
 const TURN_RATE := deg_to_rad(9.0)
 const RUN_DEPTH := 4.0
-const MAX_RANGE := 6000.0
+const MAX_RANGE := 4000.0
 
 var ordered_heading := 0.0
 var heading := 0.0

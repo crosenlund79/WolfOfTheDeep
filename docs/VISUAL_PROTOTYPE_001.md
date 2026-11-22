@@ -1,5 +1,7 @@
 # Silent Sea — Visual Prototype 001
 
+> Superseded for play by **Prototype 002 — First Contact** (`docs/PROTOTYPE_002.md`), which adds the torpedo engagement and changes a few keys: Space fires in the periscope view, Enter marks a bearing, N starts a new target, and the periscope trains by dragging or with Q / E.
+
 A look-and-feel experiment for a modern submarine simulator. **Everything is staged or cosmetic:** there is no sonar physics, weapons, AI, campaign or simulation behind what you see. Built with Godot 4.7.x; every model, texture and sound is generated procedurally at startup, so the package contains no art or audio files.
 
 ## Run it (Windows x64)

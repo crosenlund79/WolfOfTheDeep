@@ -169,6 +169,10 @@ func _ready() -> void:
 		set_view(View.CINEMATIC)
 		rig.set_shot(0)
 		hud.play_title()
+		# After the title: announce the first contact and how to attack it.
+		get_tree().create_timer(13.0).timeout.connect(func() -> void:
+			hud.event(encounter.last_contact)
+			hud.toast("P  PERISCOPE DEPTH   ·   M  RAISE PERISCOPE   ·   3  PERISCOPE VIEW   ·   SPACE  FIRE"))
 	weather.preset_changed.connect(func(l: String) -> void: hud.toast(l))
 	sub.depth_mode_changed.connect(func(l: String) -> void: hud.toast("DIVING OFFICER:  " + l))
 	sonar_ui.prefill.call_deferred()
