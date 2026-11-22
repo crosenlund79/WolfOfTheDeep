@@ -1617,6 +1617,14 @@ func _parse_args() -> void:
 				_capture.append(spec.split(":"))
 		elif a.begins_with("--sim-hours="):
 			_sim_hours = float(a.substr(12))
+		elif a == "--audio-report":
+			# Where every sound comes from (custom / recording / template / missing).
+			print("Audio override root: ", audio.library.override_root)
+			var names: Array = audio.library.registry.keys() + AudioLibrary.TEMPLATE_NAMES
+			for n in names:
+				print("AUDIO  %-28s %s" % [n, audio.library.source_of(String(n))])
+			print("AUDIO  songs: %d" % audio.library.song_streams().size())
+			get_tree().quit()
 	if _sim_hours > 0.0:
 		_run_simulation.call_deferred()
 	elif not _capture.is_empty():
