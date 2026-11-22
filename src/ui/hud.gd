@@ -198,6 +198,12 @@ func _build_pause() -> void:
 	_pause.visible = false
 	_pause.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(_pause)
+	# The HUD pauses with the game, so a small listener that keeps running
+	# while paused handles Esc (resume) and Q (quit) on the pause screen.
+	var keys := PauseKeys.new()
+	keys.hud = self
+	keys.process_mode = Node.PROCESS_MODE_ALWAYS
+	_pause.add_child(keys)
 
 
 func play_title() -> void:
@@ -261,9 +267,23 @@ func toggle_pause() -> void:
 	get_tree().paused = _pause.visible
 
 
-func _unhandled_key_input(event: InputEvent) -> void:
-	if _pause.visible and event.pressed and (event as InputEventKey).keycode == KEY_Q:
-		get_tree().quit()
+func is_paused() -> bool:
+	return _pause.visible
+
+
+## Keys on the pause screen. Runs while the tree is paused.
+class PauseKeys extends Node:
+	var hud: Hud
+
+	func _unhandled_input(event: InputEvent) -> void:
+		var k := event as InputEventKey
+		if k == null or not k.pressed or k.echo or not hud.is_paused():
+			return
+		if k.keycode == KEY_ESCAPE:
+			hud.toggle_pause()
+			get_viewport().set_input_as_handled()
+		elif k.keycode == KEY_Q:
+			get_tree().quit()
 
 
 func _hint_line(v: int) -> String:

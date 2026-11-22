@@ -1204,6 +1204,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			w.mode = Window.MODE_WINDOWED if w.mode == Window.MODE_FULLSCREEN or w.mode == Window.MODE_EXCLUSIVE_FULLSCREEN else Window.MODE_FULLSCREEN
 		KEY_ESCAPE:
 			hud.toggle_pause()
+			# Consumed here so the pause screen's own Esc handler can't see the
+			# same press and close the menu again straight away.
+			get_viewport().set_input_as_handled()
 
 
 func _set_time_level(l: int) -> void:
