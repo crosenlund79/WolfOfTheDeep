@@ -19,3 +19,6 @@ Thumbs.db
 *.aab
 *.dmg
 *.app/
+
+# Python bytecode (developer tools)
+__pycache__/
