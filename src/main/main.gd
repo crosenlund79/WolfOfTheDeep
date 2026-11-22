@@ -27,6 +27,12 @@ var _focus := Node3D.new()
 var _capture: Array = []
 var _capture_frames := 0
 var _capture_dir := ""
+var _lens: ColorRect
+var _lens_mat: ShaderMaterial
+var _snow: GPUParticles3D
+var _lens_rain := 0.0
+var _time := 0.0
+var _performance := false
 
 
 func _ready() -> void:
@@ -94,6 +100,15 @@ func _ready() -> void:
 	var ui := CanvasLayer.new()
 	ui.name = "UI"
 	add_child(ui)
+	_lens = ColorRect.new()
+	_lens.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_lens.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_lens_mat = ShaderMaterial.new()
+	_lens_mat.shader = load("res://src/fx/lens_fx.gdshader")
+	_lens.material = _lens_mat
+	ui.add_child(_lens)
+	_snow = _make_marine_snow()
+	add_child(_snow)
 	periscope_ui = PeriscopeOverlay.new()
 	periscope_ui.sub = sub
 	periscope_ui.rig = rig
@@ -110,16 +125,28 @@ func _ready() -> void:
 	ui.add_child(hud)
 
 	room.setup_screens(rig, ocean, ships)
+	room.station_selected.connect(_on_station_selected)
 
 	weather.preset_changed.connect(func(l: String) -> void: hud.toast(l))
 	sub.depth_mode_changed.connect(func(l: String) -> void: hud.toast("DIVING OFFICER:  " + l))
 
 	_parse_args()
 	if _capture.is_empty():
+		weather.set_preset("golden", true)
 		set_view(View.CINEMATIC)
+		rig.set_shot(0)
 		hud.play_title()
 	sonar_ui.prefill.call_deferred()
 	room.prefill_sonar.call_deferred()
+
+
+func _on_station_selected(kind: String) -> void:
+	if kind == "feed":
+		set_view(View.PERISCOPE)
+	elif kind == "sonar":
+		set_view(View.SONAR)
+	else:
+		set_view(View.EXTERIOR)
 
 
 func _on_breach(strength: float) -> void:
@@ -127,17 +154,13 @@ func _on_breach(strength: float) -> void:
 	audio.splash(strength)
 	# A ring of churned white water left on the surface.
 	var disc := MeshInstance3D.new()
-	var cm := CylinderMesh.new()
-	cm.top_radius = 30.0 * strength
-	cm.bottom_radius = 30.0 * strength
-	cm.height = 0.1
-	disc.mesh = cm
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(0.9, 1.0, 0.0)
-	mat.no_depth_test = true
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(90.0, 90.0) * strength
+	disc.mesh = pm
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://src/fx/foam_burst.gdshader")
+	mat.set_shader_parameter("seed", randf() * 50.0)
+	mat.set_shader_parameter("strength", 0.85)
 	disc.material_override = mat
 	disc.layers = WakeTrail.LAYER
 	disc.top_level = true
@@ -145,7 +168,7 @@ func _on_breach(strength: float) -> void:
 	var bow := sub.to_global(Vector3(0, 0, -20.0))
 	disc.global_position = Vector3(bow.x, 0.0, bow.z)
 	var tw := create_tween()
-	tw.tween_property(mat, "albedo_color", Color(0.0, 0.0, 0.0), 30.0)
+	tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("strength", v), 0.85, 0.0, 35.0)
 	tw.tween_callback(disc.queue_free)
 
 
@@ -162,7 +185,7 @@ func _spawn_ships() -> void:
 	frigate.ocean = ocean
 	frigate.name = "Frigate"
 	add_child(frigate)
-	frigate.place(sub.position + Vector3(2600.0, 0.0, -2900.0), deg_to_rad(250.0), 17.0)
+	frigate.place(sub.position + Vector3(1900.0, 0.0, -1300.0), deg_to_rad(262.0), 16.0)
 	ships.append(frigate)
 
 
@@ -174,6 +197,7 @@ func _process(delta: float) -> void:
 	for s in ships:
 		(s as SurfaceShip).advance(dt, sub.position)
 		(s as SurfaceShip).set_night(night)
+	rig.sun_dir = weather.to_sun()
 	rig.advance(dt)
 	_update_focus()
 	_update_wakes(dt)
@@ -232,6 +256,62 @@ func _update_underwater() -> void:
 	var below := d > 0.05 and view != View.COMMAND_ROOM and view != View.SONAR
 	weather.set_underwater(below, maxf(d, 0.0))
 	periscope_ui.mast_submerged = d
+	# Lens effects for the exterior cameras only.
+	var outside := view == View.EXTERIOR or view == View.CINEMATIC
+	_time += get_process_delta_time()
+	var want_rain := float(weather.current.get("rain", 0.0)) if (outside and not below) else 0.0
+	_lens_rain = move_toward(_lens_rain, want_rain, get_process_delta_time() * (0.15 if want_rain > _lens_rain else 0.5))
+	_lens.visible = outside
+	_lens_mat.set_shader_parameter("rain", _lens_rain)
+	_lens_mat.set_shader_parameter("underwater", 1.0 if below else 0.0)
+	_lens_mat.set_shader_parameter("time", _time)
+	_lens_mat.set_shader_parameter("resolution", get_viewport().get_visible_rect().size)
+	_snow.emitting = below
+	if below:
+		_snow.global_position = rig.camera.global_position
+		(_snow.draw_pass_1.surface_get_material(0) as ShaderMaterial).set_shader_parameter("light_level", 0.25 + float(weather.current.get("light_level", 1.0)) * 0.6)
+
+
+## F9: a lighter path for weaker GPUs (no MSAA / SSAO, FSR upscaling, shorter shadows).
+func _apply_quality() -> void:
+	var vp := get_viewport()
+	vp.msaa_3d = Viewport.MSAA_DISABLED if _performance else Viewport.MSAA_4X
+	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if _performance else Viewport.SCREEN_SPACE_AA_DISABLED
+	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if _performance else Viewport.SCALING_3D_MODE_BILINEAR
+	vp.scaling_3d_scale = 0.75 if _performance else 1.0
+	weather.env.ssao_enabled = not _performance
+	weather.sun.directional_shadow_max_distance = 220.0 if _performance else 450.0
+
+
+func _make_marine_snow() -> GPUParticles3D:
+	var p := GPUParticles3D.new()
+	p.name = "MarineSnow"
+	p.amount = 2500
+	p.lifetime = 9.0
+	p.preprocess = 9.0
+	p.local_coords = false
+	p.visibility_aabb = AABB(Vector3(-40, -40, -40), Vector3(80, 80, 80))
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var pm := ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	pm.emission_box_extents = Vector3(22, 14, 22)
+	pm.direction = Vector3(0.2, -0.3, 0.1)
+	pm.spread = 180.0
+	pm.initial_velocity_min = 0.05
+	pm.initial_velocity_max = 0.35
+	pm.gravity = Vector3(0, -0.04, 0)
+	pm.scale_min = 0.03
+	pm.scale_max = 0.11
+	p.process_material = pm
+	var q := QuadMesh.new()
+	q.size = Vector2(1.0, 1.0)
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://src/fx/soft_particle.gdshader")
+	mat.set_shader_parameter("tint", Color(0.75, 0.9, 0.9, 0.55))
+	q.material = mat
+	p.draw_pass_1 = q
+	p.emitting = false
+	return p
 
 
 func set_view(v: View) -> void:
@@ -333,6 +413,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			hud.toggle_help()
 		KEY_U:
 			hud.visible = not hud.visible
+		KEY_F9:
+			_performance = not _performance
+			_apply_quality()
+			hud.toast("GRAPHICS:  " + ("PERFORMANCE" if _performance else "HIGH QUALITY"))
 		KEY_F11:
 			var w := get_window()
 			w.mode = Window.MODE_WINDOWED if w.mode == Window.MODE_FULLSCREEN or w.mode == Window.MODE_EXCLUSIVE_FULLSCREEN else Window.MODE_FULLSCREEN

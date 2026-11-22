@@ -216,8 +216,9 @@ func _process(delta: float) -> void:
 	_rain.amount_ratio = clampf(float(current["rain"]), 0.0, 1.0)
 
 
-func sun_direction() -> Vector3:
-	return -sun.global_transform.basis.z
+## Unit vector pointing from the scene toward the sun (or the moon at night).
+func to_sun() -> Vector3:
+	return sun.global_transform.basis.z
 
 
 func _apply() -> void:

@@ -4,6 +4,8 @@ extends Node3D
 ## live feeds: the optronic mast camera and the sonar console render into
 ## SubViewports. The room lives on render layer 2, far below the ocean.
 
+signal station_selected(kind: String)
+
 const LAYER := 1 << 1
 const ORIGIN := Vector3(0.0, -5000.0, 0.0)
 
@@ -135,7 +137,29 @@ func handle_input(event: InputEvent) -> bool:
 	if event is InputEventKey and event.pressed and not event.echo and (event as InputEventKey).keycode == KEY_R:
 		rig_for_red = not rig_for_red
 		return true
+	if event is InputEventMouseButton and event.pressed and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		var s := _hovered()
+		if not s.is_empty() and String(s[1]) in ["feed", "sonar", "ctrl"]:
+			station_selected.emit(String(s[1]))
+			return true
 	return false
+
+
+## The screen under the mouse pointer, if any (within a small angle).
+func _hovered() -> Array:
+	var m := get_viewport().get_mouse_position()
+	var dir := camera.project_ray_normal(m)
+	var origin := camera.global_position
+	var best: Array = []
+	var best_a := 0.09
+	for s in _screens:
+		var mi: MeshInstance3D = s[2]
+		var to := (mi.global_position - origin).normalized()
+		var a := dir.angle_to(to)
+		if a < best_a:
+			best_a = a
+			best = s
+	return best
 
 
 func advance(dt: float) -> void:
@@ -170,6 +194,10 @@ func advance(dt: float) -> void:
 		_feed_cam.global_transform = Transform3D(Basis.looking_at(dir, Vector3.UP), head)
 	if _ctrl:
 		_ctrl.queue_redraw()
+	var hov := _hovered()
+	for s in _screens:
+		var lit: bool = not hov.is_empty() and s == hov and String(s[1]) in ["feed", "sonar", "ctrl"]
+		(s[0] as ShaderMaterial).set_shader_parameter("brightness", 2.4 if lit else 1.6)
 
 
 # --- construction -----------------------------------------------------------
@@ -226,7 +254,7 @@ func _screen(size: Vector2, pos: Vector3, rot: Vector3, kind: String, tint: Colo
 	mi.layers = LAYER
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_room.add_child(mi)
-	_screens.append([mat, kind])
+	_screens.append([mat, kind, mi])
 	# Screen glow onto the surroundings.
 	var l := OmniLight3D.new()
 	l.light_color = tint.lerp(Color(0.5, 0.8, 1.0), 0.5)

@@ -36,7 +36,9 @@ var _shake := 0.0
 var _seed := 0.0
 var _cuts_enabled := true
 
-const SHOTS := ["waterline_track", "high_orbit", "bow_on_low", "sail_close", "underwater_pass", "wide_establish", "stern_quarter"]
+const SHOTS := ["wide_establish", "sail_close", "waterline_track", "high_orbit", "bow_on_low", "underwater_pass", "stern_quarter"]
+
+var sun_dir := Vector3(0.0, 0.3, -1.0)
 
 var _attrs: CameraAttributesPractical
 
@@ -228,8 +230,10 @@ func _cinematic(dt: float) -> void:
 			look = s + up * 6.0 + fwd * lerpf(14.0, -14.0, u)
 			fov = 62.0
 		"wide_establish":
-			var a3 := _seed + u * 0.25
-			pos = s + Vector3(cos(a3), 0.0, sin(a3)) * 520.0
+			# Long lens from down-sun: the boat sits in the sun's glitter path.
+			var away := -Vector3(sun_dir.x, 0.0, sun_dir.z).normalized()
+			var side := Vector3(-away.z, 0.0, away.x)
+			pos = s + away * 560.0 + side * lerpf(-60.0, 60.0, u)
 			pos.y = (ocean.height_at(pos.x, pos.z) if ocean else 0.0) + 7.0
 			look = s + up * 6.0
 			fov = 18.0

@@ -136,7 +136,8 @@ BOAT         W / S  telegraph     A / D  rudder     M  masts
              Z  dive one step     X  rise one step     B  emergency blow
 WEATHER      F1 Atlantic dawn   F2 Clear   F3 Golden hour
              F4 Gale            F5 Moonlit night       N  next
-DISPLAY      U  hide interface   F11  fullscreen   Esc  pause / quit
+DISPLAY      U  hide interface   F9  performance mode   F11  fullscreen
+             Esc  pause / quit
 
 Everything you see is staged: there is no simulation behind it yet."""
 	var l := UiStyle.label(txt, 14, UiStyle.WHITE, UiStyle.mono())

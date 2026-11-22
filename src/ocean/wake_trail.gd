@@ -47,8 +47,6 @@ func advance(dt: float, speed: float, surface_factor: float) -> void:
 	if _pts.is_empty() or _pts[0].distance_to(p) > spacing:
 		_pts.insert(0, p)
 		_ages.insert(0, _time)
-	else:
-		_pts[0] = _pts[0] * 0.0 + _pts[0]
 	while _pts.size() > max_points or (_ages.size() > 2 and _time - _ages[_ages.size() - 1] > max_age):
 		_pts.pop_back()
 		_ages.pop_back()
