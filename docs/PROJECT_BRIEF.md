@@ -27,6 +27,15 @@ This brief now records the active game, Wolf of the Deep. This file **records** 
 - **Acceptance criteria / done when:** A playable patrol with an achievable resolution; spoiler-free delivery notes; Windows artifact link, launch instructions, controls and limitations provided.
 - **Relevant checks:** Headless launch; simulated patrol; card-engine and sound-resolution checks; software-rendered screenshots of the main views.
 
+## Experiment in progress (branch `claude/interior-rework-experiment`)
+
+**Status: Approved in conversation, 2026-11-22 — Mission 004B "Rework Interior Presentation"** (experiment; not to be merged automatically).
+
+- **Baseline preserved:** commit `cc666aa` (Mission 003 + Esc fix); remote backup branch `backup/pre-interior-rework-004`; local tag `backup/pre-interior-rework` (tag push refused by the session proxy).
+- **Objective:** find the best-feeling interior format (improved 3D, hybrid or 2D) while preserving exterior, submarine operation, periscope/combat, crew and voice, audio and overrides, rest/delegation, cards and patrol structure.
+- **Chosen approach (Claude's proposal for the user to judge):** hybrid — an illustrated 2D cutaway of the whole boat replaces the free-look 3D rooms; exterior, periscope and combat stay 3D.
+- **Checks:** `tests/check_boatview.gd` (run with `--fixed-fps 30`), plus the existing checks.
+
 ## Proposals awaiting user approval
 
 None. Keep proposals clearly separate from confirmed decisions and active work. Do not promote them to tasks automatically.

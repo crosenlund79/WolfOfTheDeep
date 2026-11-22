@@ -92,18 +92,18 @@ func _ready() -> void:
 	add_child(_hover)
 
 	_sleep = ColorRect.new()
-	_sleep.color = Color(0.0, 0.0, 0.0, 1.0)
+	_sleep.color = Color(0.0, 0.01, 0.02, 0.6)
 	_sleep.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_sleep.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_sleep.visible = false
 	add_child(_sleep)
 	_sleep_clock = UiStyle.label("", 40, Color(0.85, 0.5, 0.3), UiStyle.title())
 	_sleep_clock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	UiStyle.place(_sleep_clock, Vector2(0.5, 0.5), Vector2(-400, -120), Vector2(800, 60))
+	UiStyle.place(_sleep_clock, Vector2(0.5, 0), Vector2(-400, 70), Vector2(800, 60))
 	_sleep.add_child(_sleep_clock)
 	_sleep_text = UiStyle.label("", 15, UiStyle.DIM, UiStyle.mono())
 	_sleep_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	UiStyle.place(_sleep_text, Vector2(0.5, 0.5), Vector2(-500, -40), Vector2(1000, 300))
+	UiStyle.place(_sleep_text, Vector2(0.5, 1), Vector2(-500, -330), Vector2(1000, 200))
 	_sleep.add_child(_sleep_text)
 
 	_build_title()
@@ -159,6 +159,8 @@ func _build_help() -> void:
 
 VIEWS      1 control room  2 periscope  3 exterior  4 sonar  5 chart
            6 mess  7 cabin  8 engine room  9 torpedo cam  0 cinematic
+BOAT       1 / 6 / 7 / 8 show the boat in cutaway: click a compartment to
+           go there, right-click / wheel out / Backspace for the whole boat
 HELM       A / D  course -10 / +10 (Shift: 1)   W / S  telegraph
 DEPTH      O  surface  P  periscope depth  Z  deeper  X  shallower
            M  raise / lower masts   B  emergency blow (40 m or deeper)
@@ -167,7 +169,7 @@ CHART      click: steer for that point   Shift+click: add a waypoint
 ORDERS     Tab  orders to the crew (silent running, snorkel, fix, radio,
            battle stations, the conn, rest, cards)
 TIME       + / -  compression x1 to x50 (drops to x1 on events)
-CREW       click a person to talk  ·  click things in the rooms
+CREW       click a person to talk  ·  click stations and things in a room
            rest in your cabin (click the bunk)  ·  L  log, orders, messages
 PERISCOPE  drag or Q / E train  ·  wheel zoom  ·  T sensor  ·  Enter mark
            SPACE  fire (asks for confirmation)
@@ -292,8 +294,8 @@ func _hint_line(v: int) -> String:
 			return "DRAG or Q/E  TRAIN   ·   WHEEL  ZOOM   ·   T  SENSOR   ·   M  MASTS   ·   P  PERISCOPE DEPTH   ·   TAB  ORDERS   ·   H  HELP"
 		4:
 			return "CLICK  STEER FOR   ·   SHIFT+CLICK  WAYPOINT   ·   RIGHT-DRAG  PAN   ·   WHEEL  ZOOM   ·   C  CENTRE   ·   TAB  ORDERS   ·   H  HELP"
-		5, 6, 7:
-			return "CLICK PEOPLE TO TALK   ·   CLICK THINGS TO USE THEM   ·   1  CONTROL ROOM   ·   TAB  ORDERS   ·   L  LOG   ·   H  HELP"
+		0, 5, 6, 7:
+			return "CLICK A COMPARTMENT TO GO THERE   ·   CLICK PEOPLE TO TALK   ·   RIGHT-CLICK  WHOLE BOAT   ·   A / D  COURSE   ·   W / S  SPEED   ·   P / O / Z / X  DEPTH   ·   TAB  ORDERS   ·   H  HELP"
 		_:
 			return "A / D  COURSE   ·   W / S  SPEED   ·   P / O / Z / X  DEPTH   ·   M  MASTS   ·   + / -  TIME   ·   TAB  ORDERS   ·   L  LOG   ·   H  HELP"
 

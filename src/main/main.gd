@@ -58,6 +58,9 @@ var engine_room: EngineRoom
 var conn: ConnPanel
 var menu: MenuPanel
 var poker: PokerTable
+## Interior presentation (experiment): an illustrated cutaway of the boat.
+var boat: BoatView
+var _boat_next := ""
 
 var view := View.CINEMATIC
 var started := false
@@ -306,6 +309,16 @@ func _build_ui() -> void:
 	chart.rv_point = patrol.rv
 	ui.add_child(chart)
 	chart.visible = false
+	boat = BoatView.new()
+	boat.sub = sub
+	boat.crew = crew
+	boat.weather = weather
+	boat.clock = clock
+	boat.audio = audio
+	boat.encounter = encounter
+	boat.area = area
+	ui.add_child(boat)
+	boat.visible = false
 	poker = PokerTable.new()
 	poker.crew = crew
 	ui.add_child(poker)
@@ -334,6 +347,10 @@ func _connect_signals() -> void:
 	sub.approaching_pd.connect(_on_approaching_pd)
 	sub.damaged.connect(_on_damaged)
 	dialogue.line_shown.connect(func(sp: String, col: Color, t: String, ch: String) -> void: hud.show_line(sp, col, t, ch))
+	dialogue.line_shown.connect(boat.on_line)
+	boat.compartment_chosen.connect(_on_boat_compartment)
+	boat.hotspot.connect(_on_boat_hotspot)
+	boat.talk.connect(_talk)
 	crew.moved.connect(_place_crew)
 	sensors.contact_new.connect(_on_contact_new)
 	sensors.contact_classified.connect(_on_contact_classified)
@@ -369,6 +386,7 @@ func _begin_patrol() -> void:
 		return
 	started = true
 	audio.stop_music()
+	_boat_next = "_overview"
 	set_view(View.CONTROL)
 	sub.set_speed_step(3)
 	var greet := "vo_miller_greeting_1" if randf() < 0.5 else "vo_miller_greeting_2"
@@ -415,18 +433,12 @@ func _process(delta: float) -> void:
 	_update_room_labels()
 	_fire_confirm = maxf(_fire_confirm - real_dt, 0.0)
 	_alarm_t = maxf(_alarm_t - real_dt, 0.0)
-	var hov := ""
-	match view:
-		View.MESS:
-			hov = mess.hovered_text()
-		View.CABIN:
-			hov = cabin.hovered_text()
-		View.ENGINE:
-			hov = engine_room.hovered_text()
-		View.CONTROL:
-			var f := room.hovered_figure()
-			hov = f.display_name if f else ""
-	hud.set_hover(hov if not menu.visible and not poker.visible else "")
+	hud.set_hover("")
+	boat.captain_location = crew.captain_location
+	boat.captain_asleep = asleep
+	boat.poker_open = poker.visible
+	if boat.visible:
+		hud.set_view_name(boat.comp_name(boat.focus_id))
 	if not _capture.is_empty():
 		_capture_step()
 
@@ -886,6 +898,41 @@ func _on_room_clicked(kind: String, what: String) -> void:
 			_open_log()
 
 
+## Cutaway: a compartment was clicked. The captain goes there.
+func _on_boat_compartment(id: String) -> void:
+	var v: View = {"control": View.CONTROL, "sonar": View.CONTROL, "torpedo": View.CONTROL, "mess": View.MESS, "cabin": View.CABIN, "engine": View.ENGINE}.get(id, View.CONTROL)
+	_boat_next = id
+	set_view(v)
+
+
+## Cutaway: a station or object was clicked.
+func _on_boat_hotspot(id: String) -> void:
+	match id:
+		"periscope":
+			set_view(View.PERISCOPE)
+		"chart":
+			set_view(View.CHART)
+		"sonar_console":
+			set_view(View.SONAR)
+		"orders":
+			_open_orders()
+		"cards":
+			_open_cards()
+		"coffee":
+			hud.toast("You pour a coffee. Basse was right: it is terrible.")
+		"bunk":
+			_open_rest()
+		"logbook":
+			_open_log()
+		"engine_panel":
+			hud.toast("BATTERY %d%%   ·   AIP %d H   ·   DIESELS %s   ·   HULL %d%%" % [int(sub.battery), int(sub.aip_hours), "RUNNING" if sub.diesels_running else "STOPPED", int(sub.hull)])
+		"tubes":
+			hud.toast("TUBES  ·  %s" % ("READY" if encounter.can_fire() else "RELOADING %d S" % ceili(encounter.reload)))
+		"outside":
+			set_view(View.EXTERIOR)
+	audio.play("ui_click", -14.0)
+
+
 func _on_station_selected(kind: String) -> void:
 	if kind.begins_with("talk:"):
 		_talk(kind.substr(5))
@@ -945,11 +992,22 @@ func set_view(v: View) -> void:
 	sonar_ui.visible = v == View.SONAR
 	chart.visible = v == View.CHART
 	conn.visible = v == View.EXTERIOR or v == View.PERISCOPE or v == View.TORPEDO_CAM
-	room.set_active(v == View.CONTROL)
-	mess.set_active(v == View.MESS)
-	cabin.set_active(v == View.CABIN)
-	engine_room.set_active(v == View.ENGINE)
-	get_viewport().disable_3d = v == View.SONAR or v == View.CHART or asleep
+	# Interiors are presented by the cutaway (the 3D rooms stay dormant).
+	room.set_active(false)
+	mess.set_active(false)
+	cabin.set_active(false)
+	engine_room.set_active(false)
+	var inside := v == View.CONTROL or v == View.MESS or v == View.CABIN or v == View.ENGINE
+	boat.visible = inside
+	if inside:
+		var want: String = {View.CONTROL: "control", View.MESS: "mess", View.CABIN: "cabin", View.ENGINE: "engine"}[v]
+		if _boat_next == "_overview":
+			want = ""
+		elif _boat_next != "":
+			want = _boat_next
+		_boat_next = ""
+		boat.focus_on(want)
+	get_viewport().disable_3d = v == View.SONAR or v == View.CHART or inside or asleep
 	RenderingServer.global_shader_parameter_set("thermal_mode", 0.0)
 	match v:
 		View.CINEMATIC:
@@ -965,14 +1023,11 @@ func set_view(v: View) -> void:
 		View.TORPEDO_CAM:
 			rig.set_mode(CameraRig.Mode.FOLLOW)
 			rig.camera.make_current()
-		View.CONTROL:
-			rig.set_mode(CameraRig.Mode.FIXED)
-			room.camera.make_current()
 		_:
 			rig.set_mode(CameraRig.Mode.FIXED)
 	_place_crew()
 	if hud:
-		hud.set_view_name(VIEW_NAMES[v])
+		hud.set_view_name(boat.comp_name(boat.focus_id) if inside else VIEW_NAMES[v])
 
 
 func _update_focus() -> void:
@@ -1105,13 +1160,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if view == View.SONAR and sonar_ui.handle_input(event):
 		return
-	if view == View.CONTROL and room.handle_input(event):
-		return
-	if view == View.MESS and mess.handle_input(event):
-		return
-	if view == View.CABIN and cabin.handle_input(event):
-		return
-	if view == View.ENGINE and engine_room.handle_input(event):
+	if boat.visible and boat.handle_key(event):
 		return
 	if (view == View.EXTERIOR or view == View.CINEMATIC or view == View.TORPEDO_CAM or view == View.PERISCOPE) and rig.handle_input(event):
 		if view == View.CINEMATIC and (event is InputEventMouseButton):
@@ -1541,6 +1590,7 @@ func _tick_rest(dt: float) -> void:
 			hud.set_sleep(true, "Miller has the conn.")
 			get_viewport().disable_3d = true
 			poker.interrupt("")
+			boat.focus_on("")
 	if asleep:
 		var recent := watch.report.slice(maxi(watch.report.size() - 6, 0))
 		hud.set_sleep(true, "Miller has the conn.\n\n" + "\n".join(recent) + "\n\nSPACE  wake up")
@@ -1719,6 +1769,8 @@ func _begin_shot() -> void:
 					_sim_step(0.5)
 	set_view(v as View)
 	for tok in tokens:
+		if tok.begins_with("focus="):
+			boat.focus_on(tok.substr(6) if tok.substr(6) != "all" else "")
 		match tok:
 			"poker":
 				clock.seconds = float(int(clock.seconds / 86400.0)) * 86400.0 + 20.0 * 3600.0

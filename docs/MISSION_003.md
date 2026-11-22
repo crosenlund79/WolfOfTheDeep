@@ -45,9 +45,9 @@ The crew's sweets, relationships and memories are kept between sessions in your 
 
 **Periscope:** drag or **Q / E** to train · wheel to zoom · **T** to change sensor (day / low light / thermal) · **Enter** to mark a bearing.
 
-**Rooms:** move the mouse to look around. Click a person to talk to them. Click things: the coffee, the card table, your bunk, the logbook.
+**Rooms (experiment build):** the inside of the boat is a cutaway. Click a compartment to go there, a person to talk, a station to use it; right-click for the whole boat. See `README_EXPERIMENT.md`.
 
-**Control room:** click the screens (periscope feed, sonar, ship control). **R** toggles red lighting.
+**Control room:** click the periscope, chart table or ship control. **R** toggles red lighting.
 
 **Card table:** **Space** shows the next player's action · **F** fold · **C** check / call · **R** raise · **P** bet the pot · **A** all in · **Esc** leave.
 
