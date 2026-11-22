@@ -69,7 +69,7 @@ func advance(dt: float, scope_active: bool) -> void:
 		var best := 1e9
 		for s in ships:
 			var ship := s as SurfaceShip
-			if not ship.is_afloat() or not ship.visible:
+			if not ship.is_afloat() or not ship.visible or ship.submerged:
 				continue
 			var rel := ship.global_position - sub.global_position
 			var dist := Vector2(rel.x, rel.z).length()
@@ -196,8 +196,7 @@ func _on_went_under(ship: SurfaceShip) -> void:
 
 
 func _on_sunk(ship: SurfaceShip) -> void:
-	if ship == target:
-		message.emit("TARGET SUNK  ·  PRESS N FOR A NEW CONTACT")
+	message.emit("%s HAS SUNK" % (ship.vessel_name if ship.vessel_name != "" else "THE CONTACT"))
 
 
 func _listener_distance(p: Vector3) -> float:

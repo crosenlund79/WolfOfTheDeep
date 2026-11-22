@@ -1,7 +1,7 @@
 class_name Hud
 extends Control
-## Title sequence, cinematic letterbox, toasts, controls help and a compact
-## status strip.
+## Title sequence, cinematic letterbox, toasts, subtitles, controls help, the
+## status strip, location bar and the rest overlay.
 
 var main: Node
 
@@ -26,6 +26,12 @@ var _bars := 0.0
 var _hint_t := 14.0
 var _event: Label
 var _event_t := 0.0
+var _subs: Array[Dictionary] = []
+var _sub_box: VBoxContainer
+var _hover: Label
+var _sleep: ColorRect
+var _sleep_text: Label
+var _sleep_clock: Label
 
 
 func _ready() -> void:
@@ -49,11 +55,11 @@ func _ready() -> void:
 
 	_status = UiStyle.label("", 14, UiStyle.WHITE, UiStyle.mono())
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	UiStyle.place(_status, Vector2(1, 1), Vector2(-760, -50), Vector2(726, 20))
+	UiStyle.place(_status, Vector2(1, 1), Vector2(-1060, -50), Vector2(1026, 20))
 	add_child(_status)
 
 	_keys = UiStyle.label("", 12, UiStyle.DIM)
-	UiStyle.place(_keys, Vector2(0, 1), Vector2(34, -48), Vector2(1500, 20))
+	UiStyle.place(_keys, Vector2(0, 1), Vector2(34, -26), Vector2(1500, 20))
 	add_child(_keys)
 
 	_toast = UiStyle.label("", 18, UiStyle.WHITE)
@@ -71,6 +77,34 @@ func _ready() -> void:
 	_event.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
 	_event.modulate.a = 0.0
 	add_child(_event)
+
+	_sub_box = VBoxContainer.new()
+	_sub_box.alignment = BoxContainer.ALIGNMENT_END
+	_sub_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	UiStyle.place(_sub_box, Vector2(0.5, 1), Vector2(-620, -330), Vector2(1240, 170))
+	add_child(_sub_box)
+
+	_hover = UiStyle.label("", 15, Color(1.0, 0.9, 0.7))
+	_hover.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	UiStyle.place(_hover, Vector2(0.5, 0.5), Vector2(-300, 30), Vector2(600, 24))
+	_hover.add_theme_constant_override("outline_size", 6)
+	_hover.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
+	add_child(_hover)
+
+	_sleep = ColorRect.new()
+	_sleep.color = Color(0.0, 0.0, 0.0, 1.0)
+	_sleep.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_sleep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sleep.visible = false
+	add_child(_sleep)
+	_sleep_clock = UiStyle.label("", 40, Color(0.85, 0.5, 0.3), UiStyle.title())
+	_sleep_clock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	UiStyle.place(_sleep_clock, Vector2(0.5, 0.5), Vector2(-400, -120), Vector2(800, 60))
+	_sleep.add_child(_sleep_clock)
+	_sleep_text = UiStyle.label("", 15, UiStyle.DIM, UiStyle.mono())
+	_sleep_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	UiStyle.place(_sleep_text, Vector2(0.5, 0.5), Vector2(-500, -40), Vector2(1000, 300))
+	_sleep.add_child(_sleep_text)
 
 	_build_title()
 	_build_help()
@@ -95,13 +129,13 @@ func _build_title() -> void:
 	_fade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_title_root.add_child(_fade)
-	_title = UiStyle.label("S I L E N T    S E A", 82, Color(0.93, 0.96, 0.98), UiStyle.title())
+	_title = UiStyle.label("W O L F   O F   T H E   D E E P", 72, Color(0.93, 0.96, 0.98), UiStyle.title())
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	UiStyle.place(_title, Vector2(0.5, 0.5), Vector2(-900, -90), Vector2(1800, 100))
 	_title.add_theme_constant_override("outline_size", 10)
 	_title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.35))
 	_title_root.add_child(_title)
-	_subtitle = UiStyle.label("WOLF OF THE DEEP   ·   PROTOTYPE 002   ·   FIRST CONTACT", 16, Color(0.7, 0.82, 0.9))
+	_subtitle = UiStyle.label("THE BATTLE FOR THE ARCTIC   ·   PATROL ONE", 16, Color(0.7, 0.82, 0.9))
 	_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	UiStyle.place(_subtitle, Vector2(0.5, 0.5), Vector2(-600, 22), Vector2(1200, 30))
 	_title_root.add_child(_subtitle)
@@ -121,23 +155,24 @@ func _build_help() -> void:
 	sb.set_content_margin_all(22)
 	_help.add_theme_stylebox_override("panel", sb)
 	UiStyle.place(_help, Vector2(0, 0.5), Vector2(34, -300), Vector2(0, 0))
-	var txt := """CONTROLS  ·  PROTOTYPE 002  FIRST CONTACT
+	var txt := """CONTROLS  ·  PATROL ONE
 
-THE ATTACK   P  periscope depth  ·  M  raise periscope  ·  3  periscope view
-             find the merchant (drag mouse or Q / E to train, wheel to zoom)
-             hold the crosshair on her to build a solution  ·  SPACE  fire
-             6  follow the torpedo  ·  + / -  time ×1–×8  ·  N  new target
-DEPTH        O  surface   P  periscope depth   Z  dive deeper   X  rise
-             B  emergency blow (from 40 m or deeper)
-BOAT         W / S  telegraph     A / D  rudder
-VIEWS        1 cinematic  2 exterior  3 periscope  4 control room
-             5 sonar  6 torpedo cam  ·  drag to orbit, wheel to zoom
-PERISCOPE    T  sensor (TV / low light / thermal)  ·  Enter  mark bearing
-WEATHER      F1 dawn  F2 clear  F3 golden hour  F4 gale  F5 night
-DISPLAY      U  hide interface   F9  performance mode   F11  fullscreen
-             Esc  pause / quit
-
-Only the torpedo engagement is simulated (simply); the rest is staged."""
+VIEWS      1 control room  2 periscope  3 exterior  4 sonar  5 chart
+           6 mess  7 cabin  8 engine room  9 torpedo cam  0 cinematic
+HELM       A / D  course -10 / +10 (Shift: 1)   W / S  telegraph
+DEPTH      O  surface  P  periscope depth  Z  deeper  X  shallower
+           M  raise / lower masts   B  emergency blow (40 m or deeper)
+CHART      click: steer for that point   Shift+click: add a waypoint
+           right-drag pan  ·  wheel zoom  ·  C  centre  ·  Backspace  clear route
+ORDERS     Tab  orders to the crew (silent running, snorkel, fix, radio,
+           battle stations, the conn, rest, cards)
+TIME       + / -  compression x1 to x50 (drops to x1 on events)
+CREW       click a person to talk  ·  click things in the rooms
+           rest in your cabin (click the bunk)  ·  L  log, orders, messages
+PERISCOPE  drag or Q / E train  ·  wheel zoom  ·  T sensor  ·  Enter mark
+           SPACE  fire (asks for confirmation)
+DISPLAY    U hide interface  F9 performance mode  F11 fullscreen
+           Esc  pause / quit   ·   H  this help"""
 	var l := UiStyle.label(txt, 14, UiStyle.WHITE, UiStyle.mono())
 	_help.add_child(l)
 	_help.visible = false
@@ -186,6 +221,37 @@ func set_view_name(n: String) -> void:
 		_view_label.text = n
 
 
+## A spoken line as a subtitle (speaker in their colour).
+func show_line(speaker: String, color: Color, text: String, channel: String) -> void:
+	var l := RichTextLabel.new()
+	l.bbcode_enabled = true
+	l.fit_content = true
+	l.scroll_active = false
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size = Vector2(1240, 0)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	l.add_theme_font_override("normal_font", UiStyle.display())
+	l.add_theme_font_size_override("normal_font_size", 19)
+	l.add_theme_constant_override("outline_size", 6)
+	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	var tag := ("[color=#%s](%s)[/color] " % [UiStyle.DIM.to_html(false), channel.to_lower()]) if channel != "" else ""
+	l.text = "[center]%s[color=#%s]%s:[/color]  %s[/center]" % [tag, color.to_html(false), speaker, text.replace("[", "(").replace("]", ")")]
+	_sub_box.add_child(l)
+	_subs.append({"node": l, "t": 3.5 + text.length() * 0.06})
+	while _subs.size() > 3:
+		var old: Dictionary = _subs.pop_front()
+		(old["node"] as Node).queue_free()
+
+
+func set_hover(t: String) -> void:
+	_hover.text = t
+
+
+func set_sleep(on: bool, text: String = "") -> void:
+	_sleep.visible = on
+	_sleep_text.text = text
+
+
 func toggle_help() -> void:
 	_help.visible = not _help.visible
 
@@ -202,12 +268,14 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 func _hint_line(v: int) -> String:
 	match v:
-		2:
-			return "DRAG or Q/E  TRAIN   ·   WHEEL  ZOOM   ·   SPACE  FIRE   ·   M  PERISCOPE   ·   P / O / Z  DEPTH   ·   6  TORPEDO CAM   ·   2  EXTERIOR   ·   H  ALL CONTROLS"
-		5:
-			return "TORPEDO CAM   ·   + / -  TIME   ·   2  EXTERIOR   ·   3  PERISCOPE   ·   N  NEW TARGET   ·   H  ALL CONTROLS"
+		1:
+			return "DRAG or Q/E  TRAIN   ·   WHEEL  ZOOM   ·   T  SENSOR   ·   M  MASTS   ·   P  PERISCOPE DEPTH   ·   TAB  ORDERS   ·   H  HELP"
+		4:
+			return "CLICK  STEER FOR   ·   SHIFT+CLICK  WAYPOINT   ·   RIGHT-DRAG  PAN   ·   WHEEL  ZOOM   ·   C  CENTRE   ·   TAB  ORDERS   ·   H  HELP"
+		5, 6, 7:
+			return "CLICK PEOPLE TO TALK   ·   CLICK THINGS TO USE THEM   ·   1  CONTROL ROOM   ·   TAB  ORDERS   ·   L  LOG   ·   H  HELP"
 		_:
-			return "P  PERISCOPE DEPTH   ·   M  RAISE PERISCOPE   ·   3  PERISCOPE VIEW   ·   O  SURFACE   ·   Z  DIVE   ·   F1–F5  WEATHER   ·   H  ALL CONTROLS"
+			return "A / D  COURSE   ·   W / S  SPEED   ·   P / O / Z / X  DEPTH   ·   M  MASTS   ·   + / -  TIME   ·   TAB  ORDERS   ·   L  LOG   ·   H  HELP"
 
 
 func _process(delta: float) -> void:
@@ -223,7 +291,7 @@ func _process(delta: float) -> void:
 		if _title_t > 14.0:
 			_title_t = -1.0
 			_title_root.modulate.a = 0.0
-	var cinematic: bool = main != null and main.view == 0
+	var cinematic: bool = main != null and main.view == 9
 	_bars = move_toward(_bars, 1.0 if cinematic else 0.0, delta * 1.2)
 	var bar_h := vp.y * 0.11 * smoothstep(0.0, 1.0, _bars)
 	_bar_top.position = Vector2.ZERO
@@ -243,15 +311,39 @@ func _process(delta: float) -> void:
 	if main:
 		_keys.text = _hint_line(int(main.view))
 	var title_busy := _title_t >= 0.0 and _title_t < 12.0
-	var own_ui: bool = main != null and (main.view == 2 or main.view == 4)
+	var own_ui: bool = main != null and (main.view == 1 or main.view == 3 or main.view == 4)
 	for c in [_view_label, _status, _keys, _weather_label]:
 		(c as Control).visible = not title_busy
 	_view_label.visible = not title_busy and not own_ui
 	_ident.visible = _view_label.visible
 	_status.visible = not title_busy and not own_ui
+	if main != null and main.view == 3:
+		_keys.visible = false
+		_weather_label.visible = false
+	var cards: bool = main != null and main.poker != null and main.poker.visible
+	if cards:
+		for c2 in [_view_label, _ident, _status, _keys, _weather_label, _toast]:
+			(c2 as Control).visible = false
+	else:
+		_toast.visible = true
+	for i in range(_subs.size() - 1, -1, -1):
+		var e: Dictionary = _subs[i]
+		e["t"] = float(e["t"]) - delta
+		var n: Control = e["node"]
+		n.modulate.a = clampf(float(e["t"]) * 1.5, 0.0, 1.0)
+		if float(e["t"]) <= 0.0:
+			n.queue_free()
+			_subs.remove_at(i)
 
 	if main:
 		var sub: Submarine = main.sub
 		var hdg := fposmod(rad_to_deg(sub.heading), 360.0)
-		_status.text = "%s   ·   %4.1f KT   ·   HDG %03d   ·   DEPTH %5.1f M   ·   %s" % [sub.speed_label(), sub.knots(), int(hdg), maxf(sub.depth - 2.05, 0.0) + (0.0 if sub.depth < 3.0 else 2.05), sub.depth_label()]
-		_weather_label.text = main.weather.label()
+		var ordered := fposmod(rad_to_deg(sub.ordered_heading), 360.0)
+		var depth_now := maxf(sub.depth - 2.05, 0.0) + (0.0 if sub.depth < 3.0 else 2.05)
+		_status.text = "HDG %03d > %03d   ·   %s %4.1f KT   ·   DEPTH %5.1f M  (%s)   ·   BATT %d%%%s" % [int(hdg) % 360, int(round(ordered)) % 360, sub.speed_label(), sub.knots(), depth_now, sub.depth_label(), int(sub.battery), "  ·  SNORT" if sub.diesels_running and not sub.is_surfaced() else ""]
+		var clock: GameClock = main.clock
+		var scale_txt := "" if clock.level == 0 else "   ·   TIME x%d" % int(clock.scale())
+		_weather_label.text = "%s   ·   %s%s" % [clock.time_string(), main.weather.condition_label(), scale_txt]
+		_ident.text = main.location_text()
+		if _sleep.visible:
+			_sleep_clock.text = clock.time_string()

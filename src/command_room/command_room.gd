@@ -32,6 +32,17 @@ var _look := Vector2.ZERO
 var _time := 0.0
 var _screens: Array = []
 var _lamp: Node3D
+var root: Node3D
+var figures: Array[CrewFigure] = []
+var anchors := {
+	"conn": [Vector3(0.95, 0, 0.9), PI * 0.1, false],
+	"sonar_1": [Vector3(-2.55, 0, -1.5), -PI * 0.5, true],
+	"sonar_2": [Vector3(-2.55, 0, -0.2), -PI * 0.5, true],
+	"nav": [Vector3(-1.4, 0, -4.75), 0.0, false],
+	"helm": [Vector3(0.0, 0, -4.8), 0.0, true],
+	"aft": [Vector3(2.5, 0, 2.6), PI * 0.75, false],
+	"fire": [Vector3(2.55, 0, -1.5), PI * 0.5, true],
+}
 
 
 func _ready() -> void:
@@ -39,6 +50,7 @@ func _ready() -> void:
 	_room.name = "Room"
 	_room.position = ORIGIN
 	add_child(_room)
+	root = _room
 	camera = Camera3D.new()
 	camera.name = "RoomCamera"
 	camera.fov = 68.0
@@ -117,6 +129,12 @@ func setup_screens(rig: CameraRig, ocean: Ocean, ships: Array[Node3D]) -> void:
 				mat.set_shader_parameter("tex", _ctrl_vp.get_texture())
 
 
+func wire_sonar(sensors: SensorSuite, crew: Crew) -> void:
+	if _sonar:
+		_sonar.sensors = sensors
+		_sonar.crew = crew
+
+
 func prefill_sonar() -> void:
 	if _sonar:
 		_sonar.prefill()
@@ -138,11 +156,31 @@ func handle_input(event: InputEvent) -> bool:
 		rig_for_red = not rig_for_red
 		return true
 	if event is InputEventMouseButton and event.pressed and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		var f := hovered_figure()
+		if f:
+			station_selected.emit("talk:" + f.member_id)
+			return true
 		var s := _hovered()
 		if not s.is_empty() and String(s[1]) in ["feed", "sonar", "ctrl"]:
 			station_selected.emit(String(s[1]))
 			return true
 	return false
+
+
+func hovered_figure() -> CrewFigure:
+	if camera == null:
+		return null
+	var dir := camera.project_ray_normal(get_viewport().get_mouse_position())
+	var best: CrewFigure = null
+	var best_a := 0.1
+	for f in figures:
+		if not f.is_visible_in_tree() or f.get_parent() != _room:
+			continue
+		var a := dir.angle_to(f.global_position + Vector3(0, 1.3, 0) - camera.global_position)
+		if a < best_a:
+			best_a = a
+			best = f
+	return best
 
 
 ## The screen under the mouse pointer, if any (within a small angle).
@@ -194,6 +232,9 @@ func advance(dt: float) -> void:
 		_feed_cam.global_transform = Transform3D(Basis.looking_at(dir, Vector3.UP), head)
 	if _ctrl:
 		_ctrl.queue_redraw()
+	var hf := hovered_figure()
+	for f in figures:
+		f.show_label(f == hf)
 	var hov := _hovered()
 	for s in _screens:
 		var lit: bool = not hov.is_empty() and s == hov and String(s[1]) in ["feed", "sonar", "ctrl"]

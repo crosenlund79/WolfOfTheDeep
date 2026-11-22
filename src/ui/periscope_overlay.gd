@@ -94,6 +94,8 @@ func _mark() -> void:
 	for s in ships:
 		var ship := s as SurfaceShip
 		var rel := ship.global_position - sub.global_position
+		if ship.submerged or not ship.visible or rel.length() > 14000.0:
+			continue
 		var sb := fposmod(rad_to_deg(atan2(rel.x, -rel.z)), 360.0)
 		if absf(wrapf(sb - brg, -180.0, 180.0)) < rig.camera.fov * 0.5:
 			best = "  ·  %s  ·  EST RANGE %.1f KM" % [ship.contact_name, rel.length() / 1000.0 * randf_range(0.92, 1.08)]
@@ -207,6 +209,10 @@ func _draw() -> void:
 		var dist := rel.length()
 		if p.x < 0 or p.x > vp.x or p.y < 0 or p.y > vp.y or mast_submerged > 0.0 or not ship.visible or _blackout > 0.5:
 			continue
+		# Only what the eye could actually make out: no hulls below the sea,
+		# nothing beyond the visibility or the horizon.
+		if ship.submerged or dist > minf(weather.visibility_m() * (1.0 - weather.darkness() * 0.6) if weather and weather.arctic else 1e9, 14000.0):
+			continue
 		var half := clampf(ship.length / dist * px_per_deg * 57.3 * 0.55, 18.0, 400.0)
 		var hh := half * 0.45
 		var r := Rect2(p - Vector2(half, hh), Vector2(half * 2.0, hh * 2.0))
@@ -257,7 +263,7 @@ func _draw_fire_control(vp: Vector2, cx: float, cy: float, px_per_deg: float, br
 	var by := vp.y - 200.0
 	var ready := encounter.can_fire()
 	var clear := sub.periscope_state() == Submarine.Scope.CLEAR
-	var fire_txt := "SPACE   FIRE TORPEDO" if ready else "TUBES RELOADING   %d S" % ceili(encounter.reload)
+	var fire_txt := "WEAPONS TIGHT   ·   SPACE  REQUEST FIRE" if ready else "TUBES RELOADING   %d S" % ceili(encounter.reload)
 	draw_string(fd, Vector2(cx - 200, by), fire_txt, HORIZONTAL_ALIGNMENT_CENTER, 400, 20, (red if ready and clear else Color(amber.r, amber.g, amber.b, 0.6)))
 	# Solution meter.
 	var w := 260.0
@@ -319,6 +325,8 @@ func _block(pos: Vector2, lines: Array, c: Color, right: bool = false) -> void:
 func _clock() -> String:
 	var base := {"dawn": 5.7, "clear": 12.2, "golden": 18.9, "storm": 14.3, "night": 1.5}
 	var h := float(base.get(weather.preset_name if weather else "dawn", 6.0)) + _time / 3600.0
+	if weather and weather.clock:
+		h = weather.clock.hours()
 	var hh := int(h) % 24
 	var mm := int(fposmod(h * 60.0, 60.0))
 	var ss := int(fposmod(h * 3600.0, 60.0))

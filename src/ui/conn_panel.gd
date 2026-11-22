@@ -31,10 +31,10 @@ func _ready() -> void:
 		["periscope_depth", "P   PERISCOPE DEPTH"],
 		["dive", "Z   DIVE  (deeper)"],
 		["scope", "M   RAISE PERISCOPE"],
-		["view_scope", "3   PERISCOPE VIEW"],
-		["fire", "SPACE   FIRE TORPEDO"],
-		["torpedo_cam", "6   FOLLOW TORPEDO"],
-		["new_target", "N   NEW TARGET"],
+		["view_scope", "2   PERISCOPE VIEW"],
+		["fire", "SPACE   REQUEST FIRE"],
+		["torpedo_cam", "9   FOLLOW TORPEDO"],
+		["orders", "TAB   ORDERS"],
 	]:
 		var b := Button.new()
 		b.text = String(def[1])
@@ -76,12 +76,12 @@ func _process(_delta: float) -> void:
 	var t := enc.torpedo_running()
 	if t:
 		lines.append("TORP    RUNNING %d S · %.1f KM" % [int(t.travelled / Torpedo.RUN_SPEED), t.travelled / 1000.0])
-	if Engine.time_scale > 1.01:
-		lines.append("TIME    × %d" % int(Engine.time_scale))
+	if main.clock.level > 0:
+		lines.append("TIME    x %d" % int(main.clock.scale()))
 	_status.text = "\n".join(lines)
 	(_buttons["scope"] as Button).text = "M   %s PERISCOPE" % ("LOWER" if sub.masts_up else "RAISE")
-	var in_scope: bool = main.view == 2
-	(_buttons["view_scope"] as Button).text = "2   EXTERIOR VIEW" if in_scope else "3   PERISCOPE VIEW"
+	var in_scope: bool = main.view == 1
+	(_buttons["view_scope"] as Button).text = "3   EXTERIOR VIEW" if in_scope else "2   PERISCOPE VIEW"
 	(_buttons["fire"] as Button).disabled = not in_scope or not enc.can_fire()
 	(_buttons["torpedo_cam"] as Button).disabled = t == null
 	(_buttons["surface"] as Button).disabled = sub.depth_mode == 0

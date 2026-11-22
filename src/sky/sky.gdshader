@@ -28,6 +28,7 @@ uniform float lightning = 0.0;
 uniform vec2 lightning_pos = vec2(0.2, -0.3);
 uniform float sky_energy = 1.0;
 uniform float horizon_haze = 0.12;
+uniform float aurora = 0.0;
 
 uniform sampler2D cloud_noise : filter_linear_mipmap, repeat_enable;
 uniform sampler2D cloud_detail : filter_linear_mipmap, repeat_enable;
@@ -76,6 +77,23 @@ void sky() {
 		night += vec3(0.85, 0.9, 1.0) * step(0.9975, s) * tw * star_intensity * smoothstep(0.0, 0.2, h) * (0.5 + 3.0 * (s - 0.9975) / 0.0025);
 		float band = exp(-pow(dot(d, normalize(vec3(0.3, 0.6, 0.74))) * 4.0, 2.0));
 		night += vec3(0.5, 0.55, 0.7) * band * 0.025 * star_intensity * texture(cloud_detail, d.xz * 2.0).r;
+	}
+	// Aurora borealis: two slowly flowing curtains in the northern sky.
+	if (aurora > 0.01 && h > 0.0) {
+		vec2 ap = d.xz / (h + 0.35);
+		float at = cloud_time * 0.02;
+		float a_tot = 0.0;
+		for (int i = 0; i < 2; i++) {
+			float fi = float(i);
+			float curve = ap.y + 0.95 + fi * 0.55 + 0.35 * sin(ap.x * (0.7 + fi * 0.3) + at * (1.0 + fi)) + 0.15 * sin(ap.x * 2.3 - at * 1.7);
+			float band = exp(-curve * curve * (6.0 + fi * 3.0));
+			float rays = texture(cloud_detail, vec2(ap.x * (0.9 + fi * 0.4) + at * 0.3, 0.37 + fi * 0.2)).r;
+			rays = pow(clamp(rays * 1.4, 0.0, 1.0), 2.5);
+			a_tot += band * (0.25 + rays * 1.1) * (1.0 - fi * 0.35);
+		}
+		float afade = smoothstep(0.03, 0.25, h) * (1.0 - smoothstep(0.75, 0.98, h));
+		vec3 aur_col = mix(vec3(0.15, 1.0, 0.45), vec3(0.55, 0.25, 0.85), smoothstep(0.3, 0.7, h));
+		night += aur_col * a_tot * afade * aurora * 0.5;
 	}
 	float md = max(dot(d, normalize(moon_dir)), 0.0);
 	night += vec3(0.85, 0.88, 0.95) * smoothstep(0.99955, 0.99965, md) * moon_intensity * 6.0;

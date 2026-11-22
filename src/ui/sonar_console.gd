@@ -9,6 +9,8 @@ const ROW_TIME := 0.5
 
 var sub: Submarine
 var ships: Array[Node3D] = []
+var sensors: SensorSuite
+var crew: Crew
 
 var selected := 0
 var _hist_img: Image
@@ -22,7 +24,7 @@ var _water_mat: ShaderMaterial
 var _lofar: ColorRect
 var _lofar_mat: ShaderMaterial
 var _plot: Control
-var _contacts: Array[Dictionary] = []
+var _contacts: Array = []
 var _scroll := 0.0
 
 
@@ -54,59 +56,37 @@ func _ready() -> void:
 	_plot.draw.connect(_draw_plot)
 	add_child(_plot)
 
-	_contacts = [
-		{"id": "S-01", "class": "MERCHANT", "detail": "1 SHAFT · 5 BLADE · SLOW DIESEL", "tonals": [7.8, 15.6, 23.4, 50.0, 100.0, 150.0, 0.0, 0.0], "lv": [0.9, 0.6, 0.4, 0.8, 0.5, 0.3, 0.0, 0.0], "level": 0.95, "q": 0.25, "src": 0},
-		{"id": "S-02", "class": "WARSHIP", "detail": "FRIGATE · GAS TURBINE · CPP", "tonals": [11.0, 22.0, 60.0, 120.0, 180.0, 333.0, 0.0, 0.0], "lv": [0.6, 0.5, 0.9, 0.6, 0.35, 0.5, 0.0, 0.0], "level": 0.7, "q": 0.1, "src": 1},
-		{"id": "S-03", "class": "BIOLOGIC", "detail": "WHALE SONG · INTERMITTENT", "tonals": [18.0, 36.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "lv": [0.5, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "level": 0.35, "q": 0.0, "src": -1, "brg": 212.0},
-		{"id": "S-04", "class": "UNKNOWN", "detail": "FAINT · SUBMERGED?  · 1 TONAL", "tonals": [43.7, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "lv": [0.45, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "level": 0.22, "q": 0.0, "src": -1, "brg": 74.0},
-	]
 	visibility_changed.connect(func() -> void: set_process(true))
 
 
 func handle_input(event: InputEvent) -> bool:
 	if event is InputEventKey and event.pressed and not event.echo:
 		var k := (event as InputEventKey).keycode
+		var n := maxi(_contacts.size(), 1)
 		if k == KEY_Q or k == KEY_PAGEUP:
-			selected = posmod(selected - 1, _contacts.size())
+			selected = posmod(selected - 1, n)
 			return true
 		if k == KEY_E or k == KEY_PAGEDOWN:
-			selected = posmod(selected + 1, _contacts.size())
+			selected = posmod(selected + 1, n)
 			return true
 	return false
 
+func contact_bearing(c: Contact) -> float:
+	return c.bearing
 
-func contact_bearing(c: Dictionary) -> float:
-	var src := int(c["src"])
-	if src >= 0 and src < ships.size():
-		var rel := ships[src].global_position - sub.global_position
-		return fposmod(rad_to_deg(atan2(rel.x, -rel.z)), 360.0)
-	return fposmod(float(c["brg"]) + sin(_time * 0.01 + float(c["level"]) * 10.0) * 4.0, 360.0)
+func _bearing_at(c: Contact, _t_back: float) -> float:
+	return c.bearing
 
-
-func _bearing_at(c: Dictionary, t_back: float) -> float:
-	if t_back <= 0.0:
-		return contact_bearing(c)
-	var src := int(c["src"])
-	if src >= 0 and src < ships.size():
-		var ship := ships[src] as SurfaceShip
-		var sp := ship.global_position - ship.forward() * ship.speed * t_back
-		var op := sub.global_position - sub.forward() * sub.speed * t_back
-		var rel := sp - op
-		return fposmod(rad_to_deg(atan2(rel.x, -rel.z)), 360.0)
-	return fposmod(float(c["brg"]) + sin((_time - t_back) * 0.01 + float(c["level"]) * 10.0) * 4.0 - t_back * 0.02, 360.0)
-
-
-func contact_range(c: Dictionary) -> float:
-	var src := int(c["src"])
-	if src >= 0 and src < ships.size():
-		return (ships[src].global_position - sub.global_position).length()
-	return 9000.0 if String(c["class"]) == "BIOLOGIC" else 14000.0
-
+func contact_range(c: Contact) -> float:
+	return c.range_est
 
 func _process(delta: float) -> void:
 	_time += delta
-	for c in _contacts:
-		c["q"] = minf(float(c["q"]) + delta * (0.012 if int(c["src"]) >= 0 else 0.003), 0.97)
+	_contacts.clear()
+	if sensors:
+		for c in sensors.contacts:
+			if c.kind == "VESSEL" and _contacts.size() < 8:
+				_contacts.append(c)
 	_row_t += delta
 	_scroll += delta * 2.0
 	if _row_t >= ROW_TIME:
@@ -115,51 +95,58 @@ func _process(delta: float) -> void:
 	if not visible:
 		return
 	_layout()
+	selected = clampi(selected, 0, maxi(_contacts.size() - 1, 0))
 	_water_mat.set_shader_parameter("frac", _row_t / ROW_TIME)
 	_water_mat.set_shader_parameter("heading_deg", fposmod(rad_to_deg(sub.heading), 360.0))
-	_water_mat.set_shader_parameter("selected_bearing", contact_bearing(_contacts[selected]))
 	_water_mat.set_shader_parameter("self_noise", clampf(sub.knots() / 15.0, 0.0, 1.0))
-	var c := _contacts[selected]
-	var t: Array = c["tonals"]
-	var lv: Array = c["lv"]
-	_lofar_mat.set_shader_parameter("tonals_a", Vector4(t[0], t[1], t[2], t[3]))
-	_lofar_mat.set_shader_parameter("tonals_b", Vector4(t[4], t[5], t[6], t[7]))
-	_lofar_mat.set_shader_parameter("levels_a", Vector4(lv[0], lv[1], lv[2], lv[3]))
-	_lofar_mat.set_shader_parameter("levels_b", Vector4(lv[4], lv[5], lv[6], lv[7]))
+	var tonals := [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+	var levels := [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+	if not _contacts.is_empty():
+		var c: Contact = _contacts[selected]
+		_water_mat.set_shader_parameter("selected_bearing", c.bearing)
+		if c.status == "TRACKING" and c.sources.has("sonar") and c.vessel:
+			var sig := _signature(c.vessel)
+			tonals = sig[0]
+			levels = sig[1]
+	else:
+		_water_mat.set_shader_parameter("selected_bearing", -1.0)
+	_lofar_mat.set_shader_parameter("tonals_a", Vector4(tonals[0], tonals[1], tonals[2], tonals[3]))
+	_lofar_mat.set_shader_parameter("tonals_b", Vector4(tonals[4], tonals[5], tonals[6], tonals[7]))
+	_lofar_mat.set_shader_parameter("levels_a", Vector4(levels[0], levels[1], levels[2], levels[3]))
+	_lofar_mat.set_shader_parameter("levels_b", Vector4(levels[4], levels[5], levels[6], levels[7]))
 	_lofar_mat.set_shader_parameter("scroll", _scroll)
-	_lofar_mat.set_shader_parameter("strength", 0.6 + 0.4 * float(c["level"]))
+	_lofar_mat.set_shader_parameter("strength", 1.0)
 	queue_redraw()
 	_plot.queue_redraw()
 
 
-## Fill the waterfall with plausible past bearings so it opens full of history.
-func prefill() -> void:
-	if sub == null:
-		return
-	for r in range(ROWS - 1, -1, -1):
-		_push_row(float(r) * ROW_TIME, false)
-	_hist_tex.update(_hist_img)
+static func _signature(v: SurfaceShip) -> Array:
+	match v.kind:
+		SurfaceShip.Kind.MERCHANT:
+			return [[7.8, 15.6, 23.4, 50.0, 100.0, 150.0, 0.0, 0.0], [0.9, 0.6, 0.4, 0.8, 0.5, 0.3, 0.0, 0.0]]
+		SurfaceShip.Kind.TRAWLER:
+			return [[12.5, 25.0, 37.5, 60.0, 180.0, 245.0, 0.0, 0.0], [0.7, 0.5, 0.3, 0.7, 0.4, 0.5, 0.0, 0.0]]
+		SurfaceShip.Kind.RESEARCH:
+			return [[9.0, 18.0, 50.0, 133.0, 266.0, 312.0, 0.0, 0.0], [0.6, 0.4, 0.8, 0.5, 0.3, 0.6, 0.0, 0.0]]
+		_:
+			return [[11.0, 22.0, 60.0, 120.0, 333.0, 0.0, 0.0, 0.0], [0.4, 0.3, 0.6, 0.4, 0.3, 0.0, 0.0, 0.0]]
 
 
-func _push_row(t_back: float = 0.0, upload: bool = true) -> void:
+func _push_row(_t_back: float = 0.0, upload: bool = true) -> void:
 	_head = (_head + 1) % ROWS
 	_total += 1.0
 	for i in 8:
 		var col := Color(0, 0, 0, 0)
 		if i < _contacts.size():
-			var c := _contacts[i]
-			var lvl := float(c["level"])
-			if String(c["class"]) == "BIOLOGIC":
-				lvl *= 0.5 + 0.5 * sin(_total * 0.07)
-			var rng := contact_range(c)
-			lvl *= clampf(6000.0 / maxf(rng, 500.0), 0.35, 1.2)
-			col = Color(_bearing_at(c, t_back) / 360.0, lvl, 0.15 if String(c["class"]) == "UNKNOWN" else 0.3, 1.0)
+			var c: Contact = _contacts[i]
+			if c.status == "TRACKING" and c.sources.has("sonar"):
+				var lvl := clampf(0.35 + c.snr / 14.0, 0.15, 1.2)
+				col = Color(c.bearing / 360.0, lvl, 0.3, 1.0)
 		_hist_img.set_pixel(i, _head, col)
 	if upload:
 		_hist_tex.update(_hist_img)
 	_water_mat.set_shader_parameter("head", _head)
 	_water_mat.set_shader_parameter("total", _total)
-
 
 func _layout() -> void:
 	var vp := get_viewport_rect().size
@@ -191,7 +178,7 @@ func _draw() -> void:
 	draw_rect(Rect2(0, 0, vp.x, 70), Color(0.02, 0.04, 0.055))
 	draw_line(Vector2(0, 70), Vector2(vp.x, 70), UiStyle.LINE, 1.0)
 	draw_string(fd, Vector2(36, 44), "SONAR  ·  TMA  ·  TACTICAL", HORIZONTAL_ALIGNMENT_LEFT, -1, 22, UiStyle.WHITE)
-	draw_string(f, Vector2(420, 44), "VARG  S-31     BOW ARRAY: ACTIVE     FLANK: ACTIVE     TOWED: STOWED     SELF NOISE: %s" % ("LOW" if sub.knots() < 7.0 else "ELEVATED"), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, dim)
+	draw_string(f, Vector2(420, 44), "VARG  S-31     BOW ARRAY: ACTIVE     FLANK: ACTIVE     SELF NOISE: %s     LAYER: %s" % ["LOW" if sub.knots() < 7.0 else "ELEVATED", "BELOW" if sub.depth > Submarine.LAYER_DEPTH else "ABOVE"], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, dim)
 	draw_string(f, Vector2(vp.x - 330, 44), "DEPTH %5.1f M   SPD %4.1f KT" % [sub.depth, sub.knots()], HORIZONTAL_ALIGNMENT_RIGHT, 300, 13, cyan)
 
 	# Waterfall frame + bearing scale.
@@ -207,15 +194,17 @@ func _draw() -> void:
 		draw_string(f, Vector2(wr.position.x - 44, y + 4), "-%d:00" % (tmin), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, dim)
 	# Contact tags along the top of the waterfall.
 	for i in _contacts.size():
-		var c := _contacts[i]
+		var c: Contact = _contacts[i]
+		if c.status != "TRACKING":
+			continue
 		var bx := wr.position.x + wr.size.x * contact_bearing(c) / 360.0
 		var colr := UiStyle.AMBER if i == selected else UiStyle.GREEN
 		draw_colored_polygon(PackedVector2Array([Vector2(bx, wr.position.y - 2), Vector2(bx - 5, wr.position.y - 10), Vector2(bx + 5, wr.position.y - 10)]), colr)
-		draw_string(f, Vector2(bx - 20, wr.position.y - 14), String(c["id"]), HORIZONTAL_ALIGNMENT_CENTER, 40, 11, colr)
+		draw_string(f, Vector2(bx - 20, wr.position.y - 14), c.id, HORIZONTAL_ALIGNMENT_CENTER, 40, 11, colr)
 
 	# Narrowband frame.
 	var lr := Rect2(_lofar.position, _lofar.size)
-	draw_string(fd, Vector2(lr.position.x, lr.position.y - 12), "NARROWBAND  ·  %s  ·  0–400 HZ" % String(_contacts[selected]["id"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, UiStyle.AMBER)
+	draw_string(fd, Vector2(lr.position.x, lr.position.y - 12), "NARROWBAND  ·  %s  ·  0–400 HZ" % ((_contacts[selected] as Contact).id if not _contacts.is_empty() else "NO CONTACT"), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, UiStyle.AMBER)
 	draw_rect(lr.grow(1), UiStyle.LINE, false, 1.0)
 	for hz in range(0, 401, 50):
 		var x2 := lr.position.x + lr.size.x * hz / 400.0
@@ -225,19 +214,20 @@ func _draw() -> void:
 	var ly := vp.y - 200.0
 	draw_line(Vector2(36, ly - 26), Vector2(vp.x - 36, ly - 26), UiStyle.LINE, 1.0)
 	draw_string(fd, Vector2(36, ly - 36), "CONTACTS", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, cyan)
-	var hdr := "TRACK   BRG     B-RATE    CLASSIFICATION                 RANGE EST      SOLUTION    NOTES"
+	var hdr := "TRACK   BRG     SOURCES         CLASSIFICATION       CERTAINTY      RANGE EST     STATUS"
 	draw_string(f, Vector2(36, ly), hdr, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, dim)
 	for i in _contacts.size():
-		var c2 := _contacts[i]
-		var y2 := ly + 28.0 + i * 26.0
+		var c2: Contact = _contacts[i]
+		var y2 := ly + 24.0 + i * 20.0
 		if i == selected:
-			draw_rect(Rect2(30, y2 - 18, vp.x - 60, 24), Color(1.0, 0.7, 0.3, 0.1))
-		var q := float(c2["q"])
-		var rng_txt := "  ----   " if q < 0.3 else "%5.1f KM " % (contact_range(c2) / 1000.0 * (1.0 + (1.0 - q) * 0.4))
-		var rate := sin(_time * 0.02 + i) * 0.4
-		var line := "%-6s  %05.1f   %+4.1f°/M   %-28s   %s      %3d%%       %s" % [String(c2["id"]), contact_bearing(c2), rate, String(c2["class"]), rng_txt, int(q * 100.0), String(c2["detail"])]
-		draw_string(f, Vector2(36, y2), line, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, UiStyle.AMBER if i == selected else UiStyle.WHITE)
-	draw_string(f, Vector2(36, vp.y - 30), "Q / E  SELECT CONTACT      ·      STAGED DISPLAY: NO ACOUSTIC SIMULATION IN THIS PROTOTYPE", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, dim)
+			draw_rect(Rect2(30, y2 - 15, vp.x - 60, 20), Color(1.0, 0.7, 0.3, 0.1))
+		var rng_txt := "  ----   " if c2.range_err > 0.3 else "%5.1f KM ±%d%%" % [c2.range_est / 1000.0, int(c2.range_err * 100.0)]
+		var src := " ".join(c2.sources.keys()).to_upper()
+		var line := "%-6s  %05.1f   %-14s  %-19s  %-13s  %-13s %s" % [c2.id, c2.bearing, src, c2.label().substr(0, 19), c2.certainty_text(), rng_txt, c2.status]
+		draw_string(f, Vector2(36, y2), line, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, UiStyle.DIM if c2.status == "LOST" else (UiStyle.AMBER if i == selected else UiStyle.WHITE))
+	var op := crew.role_holder("SONAR") if crew else null
+	var who := "%s  (%s)" % [op.short, op.rank] if op else "UNMANNED  —  AUTOMATIC DETECTION ONLY"
+	draw_string(f, Vector2(36, vp.y - 30), "Q / E  SELECT CONTACT      ·      ON SONAR:  " + who, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, dim)
 
 
 func _draw_plot() -> void:
@@ -262,22 +252,23 @@ func _draw_plot() -> void:
 	_plot.draw_line(c, c + fwd * 60.0, Color(0.42, 0.86, 1.0, 0.6), 1.0)
 	# Contacts: bearing lines, then position estimates with uncertainty.
 	for i in _contacts.size():
-		var ct := _contacts[i]
+		var ct: Contact = _contacts[i]
+		if ct.status != "TRACKING":
+			continue
 		var brg := deg_to_rad(contact_bearing(ct))
 		var dir := Vector2(sin(brg), -cos(brg))
 		var colr := UiStyle.AMBER if i == selected else UiStyle.GREEN
 		_plot.draw_line(c, c + dir * minf(s.x, s.y) * 0.46, Color(colr.r, colr.g, colr.b, 0.22), 1.0)
-		var q := float(ct["q"])
-		if q < 0.25:
+		if ct.range_err > 0.3:
 			continue
-		var rng := contact_range(ct) * (1.0 + (1.0 - q) * 0.35)
+		var rng := contact_range(ct)
 		var p := c + dir * rng * scale
-		var along := (1.0 - q) * 2600.0 * scale + 4.0
-		var across := (1.0 - q) * 500.0 * scale + 3.0
+		var along := ct.range_err * rng * scale + 4.0
+		var across := along * 0.3 + 3.0
 		var pts := PackedVector2Array()
 		for k in 33:
 			var a := TAU * k / 32.0
 			pts.append(p + dir * cos(a) * along + Vector2(-dir.y, dir.x) * sin(a) * across)
 		_plot.draw_polyline(pts, Color(colr.r, colr.g, colr.b, 0.7), 1.0)
 		_plot.draw_rect(Rect2(p - Vector2(4, 4), Vector2(8, 8)), colr, false, 1.5)
-		_plot.draw_string(f, p + Vector2(8, -6), String(ct["id"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, colr)
+		_plot.draw_string(f, p + Vector2(8, -6), ct.id, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, colr)

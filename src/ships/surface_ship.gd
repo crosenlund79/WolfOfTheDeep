@@ -9,7 +9,10 @@ signal secondary_blast(ship: SurfaceShip, world_pos: Vector3)
 signal went_under(ship: SurfaceShip)
 signal sunk(ship: SurfaceShip)
 
-enum Kind { MERCHANT, FRIGATE }
+enum Kind { MERCHANT, FRIGATE, TRAWLER, RESEARCH, PATROL, SUBMARINE }
+
+signal pinged(ship: SurfaceShip)
+signal suspicion_changed(ship: SurfaceShip, level: float)
 enum State { SAILING, STRICKEN, SUNK }
 
 var kind := Kind.MERCHANT
@@ -20,6 +23,26 @@ var length := 180.0
 var beam := 28.0
 var draft := 8.0
 var contact_name := "MERCHANT"
+## Independent behaviour: "route", "fishing", "station", "patrol", "investigate", "drift".
+var behavior := "route"
+var route: Array[Vector3] = []
+var route_index := 0
+var route_loop := true
+var cruise_knots := 12.0
+var vessel_name := ""
+var ais_on := true
+var source_level := 172.0
+var submerged := false
+var run_depth := 0.0
+var drift_velocity := Vector3.ZERO
+var _foundering := false
+var fishing_center := Vector3.ZERO
+var fishing_radius := 2000.0
+var suspicion := 0.0
+var datum := Vector3.ZERO
+var _behavior_t := 0.0
+var _ping_t := 300.0
+var _brain_rng := RandomNumberGenerator.new()
 var state := State.SAILING
 var recycle := true
 var top_height := 40.0
@@ -52,6 +75,55 @@ func _ready() -> void:
 	_rng.seed = 4242 if kind == Kind.MERCHANT else 9191
 	_body = Node3D.new()
 	add_child(_body)
+	_brain_rng.seed = hash(name) + 17
+	if kind == Kind.TRAWLER:
+		length = 58.0
+		beam = 13.0
+		draft = 6.0
+		contact_name = "FISHING VESSEL"
+		source_level = 166.0
+		_build_trawler()
+		_churn = _make_churn()
+		return
+	if kind == Kind.RESEARCH:
+		length = 96.0
+		beam = 20.0
+		draft = 7.5
+		contact_name = "RESEARCH VESSEL"
+		source_level = 168.0
+		_build_research()
+		_churn = _make_churn()
+		return
+	if kind == Kind.PATROL:
+		length = 94.0
+		beam = 12.3
+		draft = 3.8
+		contact_name = "WARSHIP  ·  PATROL"
+		source_level = 160.0
+		top_height = 27.0
+		bow_length = 28.0
+		_build_frigate()
+		_body.scale = Vector3(0.7, 0.7, 0.7)
+		_churn = _make_churn()
+		return
+	if kind == Kind.SUBMARINE:
+		length = 80.0
+		beam = 8.0
+		draft = 0.0
+		contact_name = "SUBMERGED CONTACT"
+		source_level = 141.0
+		submerged = true
+		ais_on = false
+		run_depth = 75.0
+		var mat := ShaderMaterial.new()
+		mat.shader = load("res://src/submarine/hull.gdshader")
+		mat.set_shader_parameter("base_color", Color(0.03, 0.035, 0.035))
+		var mi := MeshInstance3D.new()
+		mi.mesh = SubmarineBuilder.build_hull_mesh(mat)
+		mi.scale = Vector3(1.05, 1.05, 1.05)
+		_body.add_child(mi)
+		_churn = _make_churn()
+		return
 	if kind == Kind.MERCHANT:
 		length = 182.0
 		beam = 30.0
@@ -59,6 +131,7 @@ func _ready() -> void:
 		contact_name = "MERCHANT  ·  CONTAINER"
 		top_height = 13.0 + 34.0
 		bow_length = 34.0
+		source_level = 176.0
 		_build_merchant()
 	else:
 		length = 134.0
@@ -150,6 +223,8 @@ func advance(dt: float, around: Vector3) -> void:
 	if state == State.STRICKEN:
 		speed = move_toward(speed, 0.0, dt * 0.15)
 		_advance_sinking(dt)
+	else:
+		_think(dt)
 	position += forward() * speed * dt
 	# Keep the staged traffic in view: recycle ships that sail far away.
 	var rel := position - around
@@ -171,7 +246,12 @@ func advance(dt: float, around: Vector3) -> void:
 		_heave = lerpf(_heave, (hb + hs + hp + hst) * 0.25 * float_w, k)
 		_pitch = lerpf(_pitch, atan2(hb - hs, length * 0.8) * 0.8 * float_w, k)
 		_roll = lerpf(_roll, atan2(hp - hst, beam) * 0.8 * float_w, k * 0.7)
-	position.y = _heave - _sink_depth
+	if submerged:
+		_heave = 0.0
+		_pitch = 0.0
+		_roll = 0.0
+	position += drift_velocity * dt
+	position.y = _heave - _sink_depth - run_depth
 	basis = Basis(Vector3.UP, -heading) * Basis(Vector3.RIGHT, _pitch - _trim * _trim_sign) * Basis(Vector3.FORWARD, _roll + _list * _list_side)
 
 
@@ -210,6 +290,24 @@ func _advance_sinking(dt: float) -> void:
 		visible = false
 		_churn.emitting = false
 		sunk.emit(self)
+
+
+## Lose the ship without an explosion (e.g. driven onto rocks): she settles
+## and goes down slowly.
+func founder() -> void:
+	if state != State.SAILING:
+		return
+	_foundering = true
+	state = State.STRICKEN
+	_sink_t = 0.0
+	_list_side = 1.0
+	_trim_sign = -1.0
+	recycle = false
+	_secondary_done = true
+	speed = 0.0
+	for light in _lights:
+		light.visible = false
+	sinking_started.emit(self)
 
 
 func _add_fire(local_pos: Vector3) -> void:
@@ -562,5 +660,188 @@ func _build_frigate() -> void:
 		lbl.shaded = true
 		lbl.double_sided = false
 		lbl.position = Vector3(side * (beam * 0.5 + 0.35), 4.5, -length * 0.5 + 24.0)
+		lbl.rotation.y = side * PI * 0.5
+		_body.add_child(lbl)
+
+
+# --- independent behaviour -----------------------------------------------------
+
+func set_route(points: Array, loop: bool, knots: float) -> void:
+	route.clear()
+	for p in points:
+		route.append(p)
+	route_index = 0
+	route_loop = loop
+	cruise_knots = knots
+	behavior = "route"
+
+
+func _steer_to(target: Vector3, knots: float, dt: float) -> float:
+	var rel := target - position
+	rel.y = 0.0
+	var want := atan2(rel.x, -rel.z)
+	heading += clampf(wrapf(want - heading, -PI, PI), -dt * 0.012, dt * 0.012)
+	speed = move_toward(speed, knots * 0.5144, dt * 0.05)
+	return rel.length()
+
+
+func _think(dt: float) -> void:
+	_behavior_t -= dt
+	match behavior:
+		"route", "patrol":
+			if route.is_empty():
+				return
+			var d := _steer_to(route[route_index], cruise_knots, dt)
+			if d < 250.0:
+				route_index += 1
+				if route_index >= route.size():
+					route_index = 0 if route_loop else route.size() - 1
+					if not route_loop:
+						behavior = "drift"
+			if behavior == "patrol":
+				_ping_t -= dt
+				if _ping_t <= 0.0:
+					_ping_t = _brain_rng.randf_range(1200.0, 3000.0) * (0.3 if suspicion > 0.4 else 1.0)
+					pinged.emit(self)
+				suspicion = maxf(suspicion - dt / 2400.0, 0.0)
+		"fishing":
+			if _behavior_t <= 0.0:
+				var a := _brain_rng.randf() * TAU
+				datum = fishing_center + Vector3(cos(a), 0.0, sin(a)) * _brain_rng.randf_range(0.0, fishing_radius)
+				_behavior_t = _brain_rng.randf_range(1800.0, 4200.0)
+			# Trawling slowly, sometimes stopped to haul.
+			var hauling := fmod(_behavior_t, 2400.0) < 500.0
+			if hauling:
+				speed = move_toward(speed, 0.0, dt * 0.05)
+			else:
+				_steer_to(datum, 3.5, dt)
+		"station":
+			speed = move_toward(speed, 0.0, dt * 0.05)
+			if _behavior_t <= 0.0 and not route.is_empty():
+				behavior = "route"
+		"investigate":
+			var d2 := _steer_to(datum, 14.0, dt)
+			if d2 < 600.0:
+				# Search around the datum, pinging, then give up.
+				heading += dt * 0.01
+				_ping_t -= dt
+				if _ping_t <= 0.0:
+					_ping_t = _brain_rng.randf_range(90.0, 200.0)
+					pinged.emit(self)
+			if _behavior_t <= 0.0:
+				behavior = "patrol"
+				suspicion = 0.3
+		"drift":
+			speed = move_toward(speed, 0.0, dt * 0.03)
+
+
+## Called by the world each sensor tick: does this ship notice the submarine?
+func sense_submarine(sub: Submarine, visibility: float, darkness: float, dt: float) -> void:
+	if state != State.SAILING or kind == Kind.MERCHANT:
+		return
+	var rel := sub.global_position - global_position
+	var dist := Vector2(rel.x, rel.z).length()
+	var gain := 0.0
+	var mast_up := sub.mast_extension() > 0.5 and sub.depth < 13.0
+	var exposed := sub.is_surfaced() or mast_up
+	# Lookouts: a periscope or a surfaced boat in daylight at close range.
+	var eye := visibility * (1.0 - darkness * 0.75)
+	if sub.is_surfaced() and dist < eye * 0.7:
+		gain += 0.25
+	elif mast_up and dist < minf(eye * 0.2, 2500.0):
+		gain += 0.06 * (1.0 + sub.speed)
+	# Radar (patrol vessels) against masts and hulls.
+	if kind == Kind.PATROL or kind == Kind.FRIGATE:
+		if exposed and dist < (9000.0 if sub.is_surfaced() else 4500.0):
+			gain += 0.05 if not sub.is_surfaced() else 0.2
+		# Passive sonar against a noisy boat.
+		var excess := sub.noise_level() - 20.0 * log(maxf(dist, 50.0)) / log(10.0) - dist * 0.0004 - 68.0 - speed * 0.8
+		if excess > 0.0:
+			gain += excess * 0.01
+	suspicion = clampf(suspicion + gain * dt / 10.0, 0.0, 1.2)
+	if gain > 0.0:
+		suspicion_changed.emit(self, suspicion)
+
+
+## Active ping result: below the layer and quiet is hard to find.
+func ping_detects(sub: Submarine) -> bool:
+	var dist := global_position.distance_to(sub.global_position)
+	var rng := 5500.0 * (0.45 if sub.depth > Submarine.LAYER_DEPTH else 1.0)
+	return dist < rng
+
+
+func _build_trawler() -> void:
+	var hull := _ship_shader(Color(0.42, 0.07, 0.05), 0.6, 0.3)
+	hull.set_shader_parameter("boot_color", Color(0.06, 0.06, 0.07))
+	hull.set_shader_parameter("boot_top", 0.5)
+	_add_hull(_hull_fn(length, beam, draft, 6.5, 14.0, 8.0, 0.08, 3.0), hull)
+	var white := _ship_shader(Color(0.82, 0.82, 0.8), 0.55, 0.35)
+	var grey := _ship_shader(Color(0.3, 0.31, 0.32), 0.5, 0.3)
+	var orange := _ship_shader(Color(0.75, 0.32, 0.06), 0.5, 0.3)
+	_box(Vector3(10.0, 7.0, 13.0), Vector3(0, 6.5 + 3.5, -length * 0.5 + 18.0), white)
+	_box(Vector3(10.6, 1.2, 4.0), Vector3(0, 6.5 + 7.6, -length * 0.5 + 15.0), white)
+	_windows_mat = StandardMaterial3D.new()
+	_windows_mat.albedo_color = Color(0.04, 0.05, 0.06)
+	_windows_mat.emission_enabled = true
+	_windows_mat.emission = Color(1.0, 0.85, 0.6)
+	_windows_mat.emission_energy_multiplier = 0.15
+	_box(Vector3(10.7, 1.0, 0.4), Vector3(0, 6.5 + 7.4, -length * 0.5 + 12.9), _windows_mat)
+	_cyl(0.3, 12.0, Vector3(0, 6.5 + 13.0, -length * 0.5 + 20.0), grey)
+	# Stern gantry and trawl gear.
+	for sx in [-4.0, 4.0]:
+		_cyl(0.4, 9.0, Vector3(sx, 6.5 + 4.5, length * 0.5 - 6.0), orange)
+	_box(Vector3(8.8, 0.8, 0.8), Vector3(0, 6.5 + 9.0, length * 0.5 - 6.0), orange)
+	_box(Vector3(6.0, 1.5, 4.0), Vector3(0, 6.5 + 0.8, length * 0.5 - 12.0), grey)
+	_nav_light(Vector3(0, 6.5 + 19.0, -length * 0.5 + 20.0), Color(1.0, 0.95, 0.85))
+	_nav_light(Vector3(0, 6.5 + 17.5, -length * 0.5 + 20.0), Color(0.1, 1.0, 0.35), 3.0)
+	_nav_light(Vector3(0, 6.5 + 16.0, -length * 0.5 + 20.0), Color(1.0, 1.0, 1.0), 3.0)
+	_nav_light(Vector3(0, 6.5 + 8.0, length * 0.5 - 8.0), Color(1.0, 0.9, 0.7), 5.0)
+	_name_label(Color(0.95, 0.95, 0.95), 6.5 * 0.55, 3.2)
+
+
+func _build_research() -> void:
+	var hull := _ship_shader(Color(0.58, 0.1, 0.07), 0.55, 0.3)
+	hull.set_shader_parameter("boot_color", Color(0.06, 0.06, 0.07))
+	hull.set_shader_parameter("boot_top", 0.5)
+	_add_hull(_hull_fn(length, beam, draft, 9.0, 26.0, 10.0, 0.06, 3.5), hull)
+	var white := _ship_shader(Color(0.86, 0.86, 0.84), 0.55, 0.35)
+	var grey := _ship_shader(Color(0.32, 0.33, 0.34), 0.5, 0.3)
+	var yellow := _ship_shader(Color(0.8, 0.62, 0.1), 0.5, 0.3)
+	_box(Vector3(17.0, 10.0, 26.0), Vector3(0, 9.0 + 5.0, -length * 0.5 + 34.0), white)
+	_box(Vector3(14.0, 4.0, 14.0), Vector3(0, 9.0 + 12.0, -length * 0.5 + 30.0), white)
+	_box(Vector3(20.0, 1.0, 5.0), Vector3(0, 9.0 + 13.5, -length * 0.5 + 26.0), white)
+	_windows_mat = StandardMaterial3D.new()
+	_windows_mat.albedo_color = Color(0.04, 0.05, 0.06)
+	_windows_mat.emission_enabled = true
+	_windows_mat.emission = Color(1.0, 0.85, 0.6)
+	_windows_mat.emission_energy_multiplier = 0.15
+	for row in 3:
+		_box(Vector3(17.2, 0.8, 24.0), Vector3(0, 9.0 + 2.0 + row * 3.0, -length * 0.5 + 34.0), _windows_mat)
+	_box(Vector3(14.2, 1.1, 0.5), Vector3(0, 9.0 + 12.3, -length * 0.5 + 22.9), _windows_mat)
+	_cyl(0.35, 10.0, Vector3(0, 9.0 + 19.0, -length * 0.5 + 30.0), grey)
+	# Crane and stern A-frame.
+	var crane := _cyl(0.5, 16.0, Vector3(5.0, 9.0 + 6.0, 6.0), yellow)
+	crane.rotation.z = deg_to_rad(-35.0)
+	for sx in [-5.5, 5.5]:
+		_cyl(0.5, 11.0, Vector3(sx, 9.0 + 5.5, length * 0.5 - 5.0), yellow)
+	_box(Vector3(11.5, 1.0, 1.0), Vector3(0, 9.0 + 11.0, length * 0.5 - 5.0), yellow)
+	_nav_light(Vector3(0, 9.0 + 24.5, -length * 0.5 + 30.0), Color(1.0, 0.95, 0.85))
+	_nav_light(Vector3(-10.5, 9.0 + 13.5, -length * 0.5 + 26.0), Color(1.0, 0.1, 0.05))
+	_nav_light(Vector3(10.5, 9.0 + 13.5, -length * 0.5 + 26.0), Color(0.1, 1.0, 0.35))
+	_nav_light(Vector3(0, 9.0 + 3.0, length * 0.5 - 14.0), Color(1.0, 0.9, 0.7), 6.0)
+	_name_label(Color(0.95, 0.95, 0.95), 4.5, 4.0)
+
+
+func _name_label(color: Color, y: float, px: float) -> void:
+	for side in [-1.0, 1.0]:
+		var lbl := Label3D.new()
+		lbl.name = "NameLabel"
+		lbl.text = vessel_name
+		lbl.font_size = 256
+		lbl.pixel_size = px * 0.004
+		lbl.modulate = color
+		lbl.shaded = true
+		lbl.double_sided = false
+		lbl.position = Vector3(side * (beam * 0.5 + 0.3), y, -length * 0.5 + length * 0.22)
 		lbl.rotation.y = side * PI * 0.5
 		_body.add_child(lbl)

@@ -1,0 +1,530 @@
+{
+ "amb_birds": {
+  "category": "ambience",
+  "files": [
+   "res://assets/audio/library/ambience/amb_birds_1.ogg",
+   "res://assets/audio/library/ambience/amb_birds_2.ogg",
+   "res://assets/audio/library/ambience/amb_birds_3.ogg",
+   "res://assets/audio/library/ambience/amb_birds_4.ogg"
+  ],
+  "loop": true,
+  "sources": [
+   "Sfx/Arctic birds 1.wav",
+   "Sfx/Arctic birds 2.wav",
+   "Sfx/Arctic birds 3.wav",
+   "Sfx/Arctic birds 4.wav"
+  ]
+ },
+ "amb_blizzard": {
+  "category": "ambience",
+  "files": [
+   "res://assets/audio/library/ambience/amb_blizzard_1.ogg",
+   "res://assets/audio/library/ambience/amb_blizzard_2.ogg",
+   "res://assets/audio/library/ambience/amb_blizzard_3.ogg",
+   "res://assets/audio/library/ambience/amb_blizzard_4.ogg"
+  ],
+  "loop": true,
+  "sources": [
+   "Sfx/Arctic blizzard 1.wav",
+   "Sfx/Arctic blizzard 2.wav",
+   "Sfx/Arctic blizzard 3.wav",
+   "Sfx/Arctic blizzard 4.wav"
+  ]
+ },
+ "amb_sea_waves": {
+  "category": "ambience",
+  "files": [
+   "res://assets/audio/library/ambience/amb_sea_waves_1.ogg",
+   "res://assets/audio/library/ambience/amb_sea_waves_2.ogg",
+   "res://assets/audio/library/ambience/amb_sea_waves_3.ogg",
+   "res://assets/audio/library/ambience/amb_sea_waves_4.ogg"
+  ],
+  "loop": true,
+  "sources": [
+   "Sfx/Arctic ocean waves 1.wav",
+   "Sfx/Arctic ocean waves 2.wav",
+   "Sfx/Arctic ocean waves 3.wav",
+   "Sfx/Arctic ocean waves 4.wav"
+  ]
+ },
+ "amb_sub_exterior": {
+  "category": "ambience",
+  "files": [
+   "res://assets/audio/library/ambience/amb_sub_exterior.ogg"
+  ],
+  "loop": true,
+  "sources": [
+   "Sfx/Submarine exterior ambiance.wav"
+  ]
+ },
+ "amb_sub_interior": {
+  "category": "ambience",
+  "files": [
+   "res://assets/audio/library/ambience/amb_sub_interior.ogg"
+  ],
+  "loop": true,
+  "sources": [
+   "Sfx/Submarine interior ambiance.wav"
+  ]
+ },
+ "amb_ventilation": {
+  "category": "ambience",
+  "files": [
+   "res://assets/audio/library/ambience/amb_ventilation_1.ogg",
+   "res://assets/audio/library/ambience/amb_ventilation_2.ogg",
+   "res://assets/audio/library/ambience/amb_ventilation_3.ogg"
+  ],
+  "loop": true,
+  "sources": [
+   "Sfx/Inerior ventilation 1.wav",
+   "Sfx/Inerior ventilation 2.wav",
+   "Sfx/Inerior ventilation 3.wav"
+  ]
+ },
+ "eng_high": {
+  "category": "ambience",
+  "files": [
+   "res://assets/audio/library/ambience/eng_high_1.ogg",
+   "res://assets/audio/library/ambience/eng_high_2.ogg",
+   "res://assets/audio/library/ambience/eng_high_3.ogg",
+   "res://assets/audio/library/ambience/eng_high_4.ogg"
+  ],
+  "loop": true,
+  "sources": [
+   "Sfx/Engine high speed 1.wav",
+   "Sfx/Engine high speed 2.wav",
+   "Sfx/Engine high speed 3.wav",
+   "Sfx/Engine high speed 4.wav"
+  ]
+ },
+ "eng_low": {
+  "category": "ambience",
+  "files": [
+   "res://assets/audio/library/ambience/eng_low_1.ogg",
+   "res://assets/audio/library/ambience/eng_low_2.ogg",
+   "res://assets/audio/library/ambience/eng_low_3.ogg",
+   "res://assets/audio/library/ambience/eng_low_4.ogg"
+  ],
+  "loop": true,
+  "sources": [
+   "Sfx/Engine low speed 1.wav",
+   "Sfx/Engine low speed 2.wav",
+   "Sfx/Engine low speed 3.wav",
+   "Sfx/Engine low speed 4.wav"
+  ]
+ },
+ "eng_medium": {
+  "category": "ambience",
+  "files": [
+   "res://assets/audio/library/ambience/eng_medium_1.ogg",
+   "res://assets/audio/library/ambience/eng_medium_2.ogg",
+   "res://assets/audio/library/ambience/eng_medium_3.ogg",
+   "res://assets/audio/library/ambience/eng_medium_4.ogg"
+  ],
+  "loop": true,
+  "sources": [
+   "Sfx/Engine medium speed 1.wav",
+   "Sfx/Engine medium speed 2.wav",
+   "Sfx/Engine medium speed 3.wav",
+   "Sfx/Engine medium speed 4.wav"
+  ]
+ },
+ "mus_main_theme": {
+  "category": "music",
+  "files": [
+   "res://assets/audio/library/music/mus_main_theme.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Wolf Main Theme - Depth Unknown.mp3"
+  ]
+ },
+ "sfx_alarm": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_alarm_1.ogg",
+   "res://assets/audio/library/sfx/sfx_alarm_2.ogg",
+   "res://assets/audio/library/sfx/sfx_alarm_3.ogg",
+   "res://assets/audio/library/sfx/sfx_alarm_4.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Emergency alarm 1.wav",
+   "Sfx/Emergency alarm 2.wav",
+   "Sfx/Emergency alarm 3.wav",
+   "Sfx/Emergency alarm 4.wav"
+  ]
+ },
+ "sfx_ballast_flooding": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_ballast_flooding_1.ogg",
+   "res://assets/audio/library/sfx/sfx_ballast_flooding_2.ogg",
+   "res://assets/audio/library/sfx/sfx_ballast_flooding_3.ogg",
+   "res://assets/audio/library/sfx/sfx_ballast_flooding_4.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Ballast tanks flooding 1.wav",
+   "Sfx/Ballast tanks flooding 2.wav",
+   "Sfx/Ballast tanks flooding 3.wav",
+   "Sfx/Ballast tanks flooding 4.wav"
+  ]
+ },
+ "sfx_encrypted_message": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_encrypted_message_1.ogg",
+   "res://assets/audio/library/sfx/sfx_encrypted_message_2.ogg",
+   "res://assets/audio/library/sfx/sfx_encrypted_message_3.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Incoming encrypted message 1.wav",
+   "Sfx/Incoming encrypted message 2.wav",
+   "Sfx/Incoming encrypted message 3.wav"
+  ]
+ },
+ "sfx_hatch_close": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_hatch_close_1.ogg",
+   "res://assets/audio/library/sfx/sfx_hatch_close_2.ogg",
+   "res://assets/audio/library/sfx/sfx_hatch_close_3.ogg",
+   "res://assets/audio/library/sfx/sfx_hatch_close_4.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Watertight hatch closing 1.wav",
+   "Sfx/Watertight hatch closing 2.wav",
+   "Sfx/Watertight hatch closing 3.wav",
+   "Sfx/Watertight hatch closing 4.wav"
+  ]
+ },
+ "sfx_hull_creak": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_hull_creak_1.ogg",
+   "res://assets/audio/library/sfx/sfx_hull_creak_2.ogg",
+   "res://assets/audio/library/sfx/sfx_hull_creak_3.ogg",
+   "res://assets/audio/library/sfx/sfx_hull_creak_4.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Creaking hull 1.wav",
+   "Sfx/Creaking hull 2.wav",
+   "Sfx/Creaking hull 3.wav",
+   "Sfx/Creaking hull 4.wav"
+  ]
+ },
+ "sfx_hull_creak_deep": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_hull_creak_deep_1.ogg",
+   "res://assets/audio/library/sfx/sfx_hull_creak_deep_2.ogg",
+   "res://assets/audio/library/sfx/sfx_hull_creak_deep_3.ogg",
+   "res://assets/audio/library/sfx/sfx_hull_creak_deep_4.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Creaking hull aproaching max depth 1.wav",
+   "Sfx/Creaking hull aproaching max depth 2.wav",
+   "Sfx/Creaking hull aproaching max depth 3.wav",
+   "Sfx/Creaking hull aproaching max depth 4.wav"
+  ]
+ },
+ "sfx_ice_calving": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_ice_calving_1.ogg",
+   "res://assets/audio/library/sfx/sfx_ice_calving_2.ogg",
+   "res://assets/audio/library/sfx/sfx_ice_calving_3.ogg",
+   "res://assets/audio/library/sfx/sfx_ice_calving_4.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Iceberg cracking and calving 1.wav",
+   "Sfx/Iceberg cracking and calving 2.wav",
+   "Sfx/Iceberg cracking and calving 3.wav",
+   "Sfx/Iceberg cracking and calving 4.wav"
+  ]
+ },
+ "sfx_ice_scrape": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_ice_scrape_1.ogg",
+   "res://assets/audio/library/sfx/sfx_ice_scrape_2.ogg",
+   "res://assets/audio/library/sfx/sfx_ice_scrape_3.ogg",
+   "res://assets/audio/library/sfx/sfx_ice_scrape_4.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Iceberg scraping 1.wav",
+   "Sfx/Iceberg scraping 2.wav",
+   "Sfx/Iceberg scraping 3.wav",
+   "Sfx/Iceberg scraping 4.wav"
+  ]
+ },
+ "sfx_ice_turning_large": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_ice_turning_large_1.ogg",
+   "res://assets/audio/library/sfx/sfx_ice_turning_large_2.ogg",
+   "res://assets/audio/library/sfx/sfx_ice_turning_large_3.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Massive iceberg turning 1.wav",
+   "Sfx/Massive iceberg turning 2.wav",
+   "Sfx/Massive iceberg turning 3.wav"
+  ]
+ },
+ "sfx_ice_turning_small": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_ice_turning_small_1.ogg",
+   "res://assets/audio/library/sfx/sfx_ice_turning_small_2.ogg",
+   "res://assets/audio/library/sfx/sfx_ice_turning_small_3.ogg",
+   "res://assets/audio/library/sfx/sfx_ice_turning_small_4.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Smaller iceberg turning 1.wav",
+   "Sfx/Smaller iceberg turning 2.wav",
+   "Sfx/Smaller iceberg turning 3.wav",
+   "Sfx/Smaller iceberg turning 4.wav"
+  ]
+ },
+ "sfx_killer_whales": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_killer_whales_1.ogg",
+   "res://assets/audio/library/sfx/sfx_killer_whales_2.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Killer whales 1.wav",
+   "Sfx/Killer whales 2.wav"
+  ]
+ },
+ "sfx_ship_propeller_pass": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_ship_propeller_pass_1.ogg",
+   "res://assets/audio/library/sfx/sfx_ship_propeller_pass_2.ogg",
+   "res://assets/audio/library/sfx/sfx_ship_propeller_pass_3.ogg",
+   "res://assets/audio/library/sfx/sfx_ship_propeller_pass_4.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Large ship propeller passing 1.wav",
+   "Sfx/Large ship propeller passing 2.wav",
+   "Sfx/Large ship propeller passing 3.wav",
+   "Sfx/Large ship propeller passing 4.wav"
+  ]
+ },
+ "sfx_sonar_inactive_ping": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_sonar_inactive_ping_1.ogg",
+   "res://assets/audio/library/sfx/sfx_sonar_inactive_ping_2.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Sonar inactive ping 1.wav",
+   "Sfx/Sonar inactive ping 2.wav"
+  ]
+ },
+ "sfx_sonar_ping": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_sonar_ping_1.ogg",
+   "res://assets/audio/library/sfx/sfx_sonar_ping_2.ogg",
+   "res://assets/audio/library/sfx/sfx_sonar_ping_3.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Sonar ping 1.wav",
+   "Sfx/Sonar ping 2.wav",
+   "Sfx/Sonar ping 3.wav"
+  ]
+ },
+ "sfx_structural_failure": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_structural_failure_1.ogg",
+   "res://assets/audio/library/sfx/sfx_structural_failure_2.ogg",
+   "res://assets/audio/library/sfx/sfx_structural_failure_3.ogg",
+   "res://assets/audio/library/sfx/sfx_structural_failure_4.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Structural failure 1.wav",
+   "Sfx/Structural failure 2.wav",
+   "Sfx/Structural failure 3.wav",
+   "Sfx/Structural failure 4.wav"
+  ]
+ },
+ "sfx_waves_splash_hull": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_waves_splash_hull_1.ogg",
+   "res://assets/audio/library/sfx/sfx_waves_splash_hull_2.ogg",
+   "res://assets/audio/library/sfx/sfx_waves_splash_hull_3.ogg",
+   "res://assets/audio/library/sfx/sfx_waves_splash_hull_4.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Waves splashing submarine 1.wav",
+   "Sfx/Waves splashing submarine 2.wav",
+   "Sfx/Waves splashing submarine 3.wav",
+   "Sfx/Waves splashing submarine 4.wav"
+  ]
+ },
+ "sfx_whale_song": {
+  "category": "sfx",
+  "files": [
+   "res://assets/audio/library/sfx/sfx_whale_song_1.ogg",
+   "res://assets/audio/library/sfx/sfx_whale_song_2.ogg",
+   "res://assets/audio/library/sfx/sfx_whale_song_3.ogg",
+   "res://assets/audio/library/sfx/sfx_whale_song_4.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "Sfx/Whale song 1.wav",
+   "Sfx/Whale song 2.wav",
+   "Sfx/Whale song 3.wav",
+   "Sfx/Whale song 4.wav"
+  ]
+ },
+ "vo_basse_dinner_ready": {
+  "category": "voice",
+  "files": [
+   "res://assets/audio/library/voice/vo_basse_dinner_ready.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "voices/Basse/Dinners ready and time for captain down time.mp3"
+  ]
+ },
+ "vo_basse_mutter_danish": {
+  "category": "voice",
+  "files": [
+   "res://assets/audio/library/voice/vo_basse_mutter_danish.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "voices/Basse/Muttering when Miller greets captain back.mp3"
+  ]
+ },
+ "vo_miller_approaching_pd": {
+  "category": "voice",
+  "files": [
+   "res://assets/audio/library/voice/vo_miller_approaching_pd.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "voices/Miller/Approaching periscope depth.mp3"
+  ]
+ },
+ "vo_miller_assumes_command": {
+  "category": "voice",
+  "files": [
+   "res://assets/audio/library/voice/vo_miller_assumes_command.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "voices/Miller/Miller assumes command.mp3"
+  ]
+ },
+ "vo_miller_contact_lost": {
+  "category": "voice",
+  "files": [
+   "res://assets/audio/library/voice/vo_miller_contact_lost.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "voices/Miller/Contact lost.mp3"
+  ]
+ },
+ "vo_miller_greeting_1": {
+  "category": "voice",
+  "files": [
+   "res://assets/audio/library/voice/vo_miller_greeting_1.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "voices/Miller/Greetings when opening game session 1.mp3"
+  ]
+ },
+ "vo_miller_greeting_2": {
+  "category": "voice",
+  "files": [
+   "res://assets/audio/library/voice/vo_miller_greeting_2.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "voices/Miller/Greetings when opening game session 2.mp3"
+  ]
+ },
+ "vo_miller_new_contact_085": {
+  "category": "voice",
+  "files": [
+   "res://assets/audio/library/voice/vo_miller_new_contact_085.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "voices/Miller/New sonar contact.mp3"
+  ]
+ },
+ "vo_miller_patrol_contact_085": {
+  "category": "voice",
+  "files": [
+   "res://assets/audio/library/voice/vo_miller_patrol_contact_085.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "voices/Miller/Sonar contact during patrol.mp3"
+  ]
+ },
+ "vo_miller_pd_reached": {
+  "category": "voice",
+  "files": [
+   "res://assets/audio/library/voice/vo_miller_pd_reached.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "voices/Miller/Periscope depth reached.mp3"
+  ]
+ },
+ "vo_miller_torpedo_away": {
+  "category": "voice",
+  "files": [
+   "res://assets/audio/library/voice/vo_miller_torpedo_away.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "voices/Miller/Torpedo away.mp3"
+  ]
+ },
+ "vo_miller_torpedo_impact": {
+  "category": "voice",
+  "files": [
+   "res://assets/audio/library/voice/vo_miller_torpedo_impact.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "voices/Miller/Torpedo impact.mp3"
+  ]
+ },
+ "vo_miller_welcome_back": {
+  "category": "voice",
+  "files": [
+   "res://assets/audio/library/voice/vo_miller_welcome_back.ogg"
+  ],
+  "loop": false,
+  "sources": [
+   "voices/Miller/Welcome back captain.mp3"
+  ]
+ }
+}

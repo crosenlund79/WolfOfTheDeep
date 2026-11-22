@@ -71,6 +71,63 @@ const PRESETS := {
 	},
 }
 
+
+## --- Arctic patrol mode: the clock drives sun and moon; palettes blend by sun
+## elevation and a weather condition is layered on top. ---------------------
+const ARCTIC_DAY := {
+	"label": "", "sun_elev": 8.0, "sun_az": 180.0, "sun_color": Color(1.0, 0.86, 0.7), "sun_energy": 1.9,
+	"zenith": Color(0.17, 0.29, 0.5), "horizon": Color(0.66, 0.72, 0.79), "horizon_sun": Color(0.96, 0.82, 0.66), "ground": Color(0.04, 0.06, 0.08),
+	"sun_disk": 30.0, "sun_glow": 1.0, "moon": 0.0, "stars": 0.0,
+	"clouds": 0.42, "cloud_soft": 0.2, "cloud_lit": Color(1.0, 0.84, 0.68), "cloud_amb": Color(0.72, 0.76, 0.82), "cloud_dark": Color(0.36, 0.4, 0.46),
+	"fog_color": Color(0.62, 0.68, 0.74), "fog_density": 0.00011, "vol_fog": 0.0008,
+	"hs": 1.6, "spectrum": 0.9, "chop": 0.72, "foam": 0.25,
+	"deep": Color(0.006, 0.02, 0.032), "body": Color(0.018, 0.068, 0.088), "sss": Color(0.06, 0.3, 0.3), "sss_str": 0.9,
+	"light_level": 0.8, "ambient": 0.9, "exposure": 1.0, "sky_energy": 1.0,
+	"rain": 0.0, "lightning": 0.0, "bio": 0.0, "nav_lights": 0.0, "haze": 0.12, "snow": 0.0, "aurora": 0.0,
+}
+const ARCTIC_DUSK := {
+	"label": "", "sun_elev": 0.0, "sun_az": 270.0, "sun_color": Color(1.0, 0.56, 0.3), "sun_energy": 1.5,
+	"zenith": Color(0.12, 0.16, 0.32), "horizon": Color(0.44, 0.42, 0.53), "horizon_sun": Color(1.0, 0.54, 0.32), "ground": Color(0.03, 0.04, 0.06),
+	"sun_disk": 26.0, "sun_glow": 1.3, "moon": 0.0, "stars": 0.15,
+	"clouds": 0.45, "cloud_soft": 0.2, "cloud_lit": Color(1.0, 0.54, 0.32), "cloud_amb": Color(0.38, 0.36, 0.46), "cloud_dark": Color(0.15, 0.14, 0.2),
+	"fog_color": Color(0.46, 0.43, 0.5), "fog_density": 0.00014, "vol_fog": 0.0009,
+	"hs": 1.6, "spectrum": 0.9, "chop": 0.72, "foam": 0.25,
+	"deep": Color(0.006, 0.016, 0.026), "body": Color(0.016, 0.05, 0.066), "sss": Color(0.14, 0.32, 0.3), "sss_str": 1.1,
+	"light_level": 0.5, "ambient": 0.8, "exposure": 1.1, "sky_energy": 1.0,
+	"rain": 0.0, "lightning": 0.0, "bio": 0.0, "nav_lights": 1.0, "haze": 0.1, "snow": 0.0, "aurora": 0.2,
+}
+const ARCTIC_NIGHT := {
+	"label": "", "sun_elev": -15.0, "sun_az": 0.0, "sun_color": Color(0.6, 0.7, 0.95), "sun_energy": 0.32,
+	"zenith": Color(0.005, 0.01, 0.024), "horizon": Color(0.03, 0.048, 0.08), "horizon_sun": Color(0.05, 0.072, 0.1), "ground": Color(0.005, 0.008, 0.013),
+	"sun_disk": 0.0, "sun_glow": 0.0, "moon": 1.0, "stars": 1.0,
+	"clouds": 0.36, "cloud_soft": 0.2, "cloud_lit": Color(0.05, 0.065, 0.08), "cloud_amb": Color(0.04, 0.05, 0.07), "cloud_dark": Color(0.01, 0.015, 0.022),
+	"fog_color": Color(0.02, 0.03, 0.05), "fog_density": 0.00014, "vol_fog": 0.0008,
+	"hs": 1.6, "spectrum": 0.9, "chop": 0.72, "foam": 0.25,
+	"deep": Color(0.004, 0.011, 0.02), "body": Color(0.012, 0.032, 0.052), "sss": Color(0.03, 0.1, 0.12), "sss_str": 0.4,
+	"light_level": 0.18, "ambient": 0.9, "exposure": 2.5, "sky_energy": 1.0,
+	"rain": 0.0, "lightning": 0.0, "bio": 0.25, "nav_lights": 1.0, "haze": 0.1, "snow": 0.0, "aurora": 1.0,
+}
+## Weather layered on the time-of-day palette: "mul" scales, "set" overrides.
+const CONDITIONS := {
+	"clear": {"label": "CLEAR", "mul": {}, "set": {}},
+	"overcast": {"label": "OVERCAST", "mul": {"sun_energy": 0.45, "light_level": 0.78, "fog_density": 2.5, "hs": 1.2, "exposure": 1.12, "sun_glow": 0.3},
+		"set": {"clouds": 0.97, "cloud_soft": 0.3, "sun_disk": 0.0, "stars": 0.0, "aurora": 0.0, "moon": 0.0}},
+	"fog": {"label": "SEA FOG", "mul": {"sun_energy": 0.3, "light_level": 0.72, "hs": 0.7, "sun_glow": 0.25},
+		"set": {"fog_density": 0.0045, "vol_fog": 0.02, "clouds": 1.0, "sun_disk": 0.0, "stars": 0.0, "aurora": 0.0, "moon": 0.0, "haze": 0.45}},
+	"snow": {"label": "SNOW", "mul": {"sun_energy": 0.3, "light_level": 0.62, "hs": 1.4, "exposure": 1.2, "sun_glow": 0.2},
+		"set": {"snow": 1.0, "clouds": 1.0, "fog_density": 0.0012, "vol_fog": 0.008, "sun_disk": 0.0, "stars": 0.0, "aurora": 0.0, "moon": 0.0}},
+	"gale": {"label": "GALE", "mul": {"sun_energy": 0.3, "light_level": 0.55, "exposure": 1.2, "sun_glow": 0.15},
+		"set": {"hs": 6.0, "spectrum": 1.3, "chop": 0.95, "foam": 1.0, "snow": 0.55, "clouds": 1.0, "fog_density": 0.0009, "vol_fog": 0.01, "sun_disk": 0.0, "stars": 0.0, "aurora": 0.0, "moon": 0.0}},
+}
+
+var clock: GameClock
+var arctic := false
+var condition := "clear"
+var _snow: GPUParticles3D
+var _snow_mat: ShaderMaterial
+var _moon_dir := Vector3(0.3, 0.4, 0.8)
+var _real_sun_dir := Vector3.UP
+
 var env: Environment
 var world_env: WorldEnvironment
 var sun: DirectionalLight3D
@@ -155,6 +212,7 @@ func _ready() -> void:
 	add_child(world_env)
 
 	_build_rain()
+	_build_snow()
 	_build_light_rays()
 
 	current = PRESETS[preset_name].duplicate()
@@ -184,6 +242,8 @@ func label() -> String:
 
 
 func is_night() -> bool:
+	if arctic and clock:
+		return clock.sun().x < -4.0
 	return float(current.get("nav_lights", 0.0)) > 0.5 and float(current.get("light_level", 1.0)) < 0.3
 
 
@@ -194,7 +254,22 @@ func set_underwater(value: bool, depth: float) -> void:
 
 func _process(delta: float) -> void:
 	cloud_time += delta
-	if _blend < 1.0:
+	if arctic and clock:
+		var target := _compose_arctic()
+		var k := 1.0 - exp(-delta / 6.0)
+		for key in target.keys():
+			var a: Variant = current.get(key, target[key])
+			var b: Variant = target[key]
+			if b is float:
+				current[key] = lerpf(float(a), float(b), k)
+			elif b is Color:
+				current[key] = (a as Color).lerp(b as Color, k)
+			else:
+				current[key] = b
+		# The sun follows the clock directly (no smoothing).
+		current["sun_elev"] = target["sun_elev"]
+		current["sun_az"] = target["sun_az"]
+	elif _blend < 1.0:
 		_blend = minf(_blend + delta / _blend_time, 1.0)
 		var t := smoothstep(0.0, 1.0, _blend)
 		for key in _to.keys():
@@ -214,6 +289,14 @@ func _process(delta: float) -> void:
 		_ray_volume.global_position = fp
 	_rain.emitting = float(current["rain"]) > 0.3 and not underwater
 	_rain.amount_ratio = clampf(float(current["rain"]), 0.0, 1.0)
+	var snow := float(current.get("snow", 0.0))
+	_snow.emitting = snow > 0.15 and not underwater
+	_snow.amount_ratio = clampf(snow, 0.0, 1.0)
+	if follow:
+		_snow.global_position = follow.global_position + Vector3(0.0, 12.0, 0.0)
+	_snow_mat.set_shader_parameter("light_level", 0.25 + float(current["light_level"]) * 0.9)
+	var wind := 1.5 + float(current["hs"]) * 1.4
+	(_snow.process_material as ParticleProcessMaterial).gravity = Vector3(wind * 0.8, -1.6, wind * 0.3)
 
 
 ## Unit vector pointing from the scene toward the sun (or the moon at night).
@@ -227,14 +310,33 @@ func _apply() -> void:
 	var az := deg_to_rad(float(c["sun_az"]))
 	# Direction toward the light (sun, or the moon at night).
 	var to_light := Vector3(sin(az) * cos(elev), sin(elev), -cos(az) * cos(elev)).normalized()
+	_real_sun_dir = to_light
+	var light_scale := 1.0
+	if arctic:
+		var sun_el := float(c["sun_elev"])
+		_moon_dir = Vector3(-sin(az) * 0.9, 0.36, cos(az) * 0.9).normalized()
+		if sun_el > -3.0:
+			light_scale = smoothstep(-3.0, 3.0, sun_el)
+			# Keep the shadow-casting light a touch above the horizon.
+			var e2 := deg_to_rad(maxf(sun_el, 1.5))
+			to_light = Vector3(sin(az) * cos(e2), sin(e2), -cos(az) * cos(e2)).normalized()
+		else:
+			light_scale = smoothstep(-3.0, -9.0, sun_el)
+			to_light = _moon_dir
 	sun.global_transform = Transform3D(Basis.looking_at(-to_light, Vector3.UP if absf(to_light.y) < 0.99 else Vector3.FORWARD), Vector3.ZERO)
 	var flash := _lightning
 	sun.light_color = (c["sun_color"] as Color).lerp(Color(0.8, 0.85, 1.0), clampf(flash, 0.0, 1.0))
-	sun.light_energy = float(c["sun_energy"]) + flash * 2.5
+	sun.light_energy = float(c["sun_energy"]) * light_scale + flash * 2.5
 
 	var moon_on := float(c["moon"])
-	sky_mat.set_shader_parameter("sun_dir", to_light)
-	sky_mat.set_shader_parameter("moon_dir", to_light if moon_on > 0.5 else Vector3(0.3, -0.5, 0.8))
+	if arctic:
+		sky_mat.set_shader_parameter("sun_dir", _real_sun_dir)
+		sky_mat.set_shader_parameter("moon_dir", _moon_dir)
+		sky_mat.set_shader_parameter("aurora", float(c.get("aurora", 0.0)))
+	else:
+		sky_mat.set_shader_parameter("sun_dir", to_light)
+		sky_mat.set_shader_parameter("moon_dir", to_light if moon_on > 0.5 else Vector3(0.3, -0.5, 0.8))
+		sky_mat.set_shader_parameter("aurora", 0.0)
 	sky_mat.set_shader_parameter("moon_intensity", moon_on)
 	sky_mat.set_shader_parameter("sun_color", c["sun_color"])
 	sky_mat.set_shader_parameter("sun_disk", c["sun_disk"])
@@ -398,3 +500,95 @@ static func _cloud_noise(size: int, freq: float, octaves: int, seed_value: int) 
 	tex.normalize = true
 	tex.noise = noise
 	return tex
+
+
+func set_condition(c: String) -> void:
+	if CONDITIONS.has(c) and c != condition:
+		condition = c
+		preset_changed.emit(String(CONDITIONS[c]["label"]))
+
+
+func condition_label() -> String:
+	return String(CONDITIONS[condition]["label"]) if arctic else label()
+
+
+## Rough meteorological visibility in metres (for sensors and lookouts).
+func visibility_m() -> float:
+	var vis := 3.0 / maxf(float(current.get("fog_density", 0.0002)), 0.00005)
+	vis = minf(vis, 24000.0)
+	return vis
+
+
+## 0 = full daylight, 1 = dark night.
+func darkness() -> float:
+	if arctic and clock:
+		return 1.0 - smoothstep(-9.0, 2.0, clock.sun().x)
+	return 1.0 - clampf(float(current.get("light_level", 1.0)), 0.0, 1.0)
+
+
+func _compose_arctic() -> Dictionary:
+	var sun_v := clock.sun()
+	var el := sun_v.x
+	var out := {}
+	var night_w := 1.0 - smoothstep(-10.0, -2.0, el)
+	var day_w := smoothstep(0.5, 7.0, el)
+	for key in ARCTIC_DAY.keys():
+		var d: Variant = ARCTIC_DAY[key]
+		var u: Variant = ARCTIC_DUSK[key]
+		var n: Variant = ARCTIC_NIGHT[key]
+		if d is float:
+			var dusk_v := lerpf(float(n), float(u), 1.0 - night_w)
+			out[key] = lerpf(dusk_v, float(d), day_w)
+		elif d is Color:
+			var dusk_c := (n as Color).lerp(u as Color, 1.0 - night_w)
+			out[key] = dusk_c.lerp(d as Color, day_w)
+		else:
+			out[key] = d
+	var cond: Dictionary = CONDITIONS[condition]
+	for key in (cond["mul"] as Dictionary).keys():
+		out[key] = float(out[key]) * float(cond["mul"][key])
+	for key in (cond["set"] as Dictionary).keys():
+		out[key] = cond["set"][key]
+	if condition == "fog" or condition == "snow":
+		var lvl := float(out["light_level"])
+		out["fog_color"] = (out["horizon"] as Color).lerp(Color(0.78, 0.8, 0.83) * clampf(lvl * 1.1, 0.05, 1.0), 0.6)
+		out["horizon"] = (out["horizon"] as Color).lerp(out["fog_color"] as Color, 0.6)
+		out["horizon_sun"] = (out["horizon_sun"] as Color).lerp(out["fog_color"] as Color, 0.6)
+	out["sun_elev"] = el
+	out["sun_az"] = sun_v.y
+	out["label"] = String(cond["label"])
+	return out
+
+
+func _build_snow() -> void:
+	_snow = GPUParticles3D.new()
+	_snow.name = "Snow"
+	_snow.amount = 9000
+	_snow.lifetime = 7.0
+	_snow.preprocess = 4.0
+	_snow.local_coords = false
+	_snow.visibility_aabb = AABB(Vector3(-70, -60, -70), Vector3(140, 90, 140))
+	_snow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var pm := ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	pm.emission_box_extents = Vector3(45.0, 14.0, 45.0)
+	pm.direction = Vector3(0.3, -1.0, 0.1)
+	pm.spread = 25.0
+	pm.initial_velocity_min = 0.6
+	pm.initial_velocity_max = 1.6
+	pm.gravity = Vector3(2.0, -1.6, 0.6)
+	pm.turbulence_enabled = true
+	pm.turbulence_noise_strength = 2.0
+	pm.turbulence_noise_scale = 6.0
+	pm.scale_min = 0.6
+	pm.scale_max = 1.4
+	_snow.process_material = pm
+	var q := QuadMesh.new()
+	q.size = Vector2(0.07, 0.07)
+	_snow_mat = ShaderMaterial.new()
+	_snow_mat.shader = load("res://src/fx/soft_particle.gdshader")
+	_snow_mat.set_shader_parameter("tint", Color(0.95, 0.97, 1.0, 0.85))
+	q.material = _snow_mat
+	_snow.draw_pass_1 = q
+	_snow.emitting = false
+	add_child(_snow)

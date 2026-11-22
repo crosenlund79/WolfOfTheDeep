@@ -1,12 +1,12 @@
-# Builds the portable Windows x64 package of the Silent Sea prototypes
-# (currently Prototype 002 "First Contact").
-# Approved by the user for this prototype; produces a downloadable workflow
-# artifact only (no release publishing).
-name: Silent Sea · Windows x64 build
+# Builds the portable Windows x64 package of Wolf of the Deep
+# (currently Development Mission 003 "A Living Submarine", Patrol One).
+# Approved by the user for these playtest builds; produces a downloadable
+# workflow artifact only (no release publishing, no installer).
+name: Wolf of the Deep · Windows x64 build
 
 on:
   push:
-    branches: ["claude/visual-prototype-001-silent-sea"]
+    branches: ["claude/mission-003-living-submarine"]
   workflow_dispatch:
 
 env:
@@ -49,23 +49,29 @@ jobs:
           timeout 180 ~/godot/godot --headless --path . --quit-after 150 2>&1 | tee smoke.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error" smoke.log; then exit 1; fi
 
+      - name: Practical checks (cards, sound resolution)
+        run: |
+          timeout 300 ~/godot/godot --headless --path . -s tests/check_poker.gd 2>&1 | tee checks.log
+          timeout 120 ~/godot/godot --headless --path . -s tests/check_audio.gd 2>&1 | tee -a checks.log
+          grep -q "POKER CHECK: PASS" checks.log && grep -q "AUDIO CHECK: PASS" checks.log
+
       - name: Export Windows x64 (portable, single executable)
         run: |
           set -euo pipefail
-          mkdir -p build/SilentSea
-          ~/godot/godot --headless --path . --export-release "Windows Desktop" build/SilentSea/SilentSea.exe
-          test -s build/SilentSea/SilentSea.exe
-          cp docs/PROTOTYPE_002.md build/SilentSea/README.md
-          cp docs/SOUNDS.md build/SilentSea/SOUNDS.md
+          mkdir -p build/WolfOfTheDeep
+          ~/godot/godot --headless --path . --export-release "Windows Desktop" build/WolfOfTheDeep/WolfOfTheDeep.exe
+          test -s build/WolfOfTheDeep/WolfOfTheDeep.exe
+          cp docs/MISSION_003.md build/WolfOfTheDeep/README.md
+          cp docs/AUDIO_LIBRARY.md build/WolfOfTheDeep/AUDIO_LIBRARY.md
           # External folder for user sound overrides (read at startup, no rebuild).
-          mkdir -p build/SilentSea/custom/audio
-          cp docs/SOUNDS.md build/SilentSea/custom/audio/PUT_YOUR_SOUNDS_HERE.txt
-          ls -laR build/SilentSea
+          mkdir -p build/WolfOfTheDeep/custom/audio
+          cp docs/AUDIO_LIBRARY.md build/WolfOfTheDeep/custom/audio/PUT_YOUR_SOUNDS_HERE.txt
+          ls -laR build/WolfOfTheDeep
 
       - name: Upload portable build
         uses: actions/upload-artifact@v4
         with:
-          name: SilentSea-Prototype002-FirstContact-windows-x64
-          path: build/SilentSea
+          name: WolfOfTheDeep-Mission003-PatrolOne-windows-x64
+          path: build/WolfOfTheDeep
           if-no-files-found: error
           retention-days: 30

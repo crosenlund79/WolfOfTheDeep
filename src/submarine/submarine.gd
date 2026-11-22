@@ -17,9 +17,37 @@ const SPEED_NAMES := ["ALL STOP", "AHEAD 1/3", "AHEAD 2/3", "AHEAD STANDARD", "A
 const DEPTH_MODES := [
 	{"label": "SURFACED", "depth": 2.05},
 	{"label": "PERISCOPE DEPTH", "depth": 10.6},
-	{"label": "DIVE  40 M", "depth": 40.0},
-	{"label": "DEEP 120 M", "depth": 120.0},
+	{"label": "20 M", "depth": 20.0},
+	{"label": "40 M", "depth": 40.0},
+	{"label": "60 M", "depth": 60.0},
+	{"label": "100 M", "depth": 100.0},
+	{"label": "150 M", "depth": 150.0},
+	{"label": "200 M  (TEST DEPTH)", "depth": 200.0},
 ]
+const TEST_DEPTH := 200.0
+const CRUSH_DEPTH := 290.0
+const LAYER_DEPTH := 55.0
+
+signal pd_reached
+signal approaching_pd
+signal damaged(amount: float, kind: String)
+
+## Helm: the helmsman steers to the ordered course.
+var ordered_heading := 0.0
+var helm_auto := true
+## Electrical plant (percent) and air-independent propulsion fuel (hours).
+var battery := 82.0
+var aip_hours := 96.0
+var snorkel_ordered := false
+var diesels_running := false
+var silent_running := false
+## Hull state.
+var hull := 100.0
+var leak := 0.0
+var flooding := 0.0
+var transient := 0.0
+var _pd_announced := false
+var _approach_announced := false
 
 var ocean: Ocean
 var heading := 0.0
@@ -148,6 +176,8 @@ func set_depth_mode(mode: int) -> void:
 	mode = clampi(mode, 0, DEPTH_MODES.size() - 1)
 	if mode == depth_mode or _blow:
 		return
+	_pd_announced = false
+	_approach_announced = false
 	if depth_mode == 0 and mode > 0:
 		vents_opened.emit()
 		_vent_spray.restart()
@@ -155,8 +185,10 @@ func set_depth_mode(mode: int) -> void:
 	elif mode == 0 and depth > 3.0:
 		surfacing.emit()
 	# Masts are housed for a deep dive; raise them again at periscope depth.
-	if mode >= 2 and masts_up:
+	if mode >= 3 and masts_up:
 		set_periscope(false)
+	if mode != 1:
+		snorkel_ordered = false
 	depth_mode = mode
 	_target_depth = float(DEPTH_MODES[mode]["depth"])
 	depth_mode_changed.emit(String(DEPTH_MODES[mode]["label"]))
@@ -215,8 +247,26 @@ func is_surfaced() -> bool:
 
 
 func advance(dt: float) -> void:
+	# The attitude springs are explicit; keep each step small for stability
+	# under time compression.
+	if dt > 0.2:
+		var n := ceili(dt / 0.2)
+		for _i in n:
+			_advance_step(dt / float(n))
+		return
+	_advance_step(dt)
+
+
+func _advance_step(dt: float) -> void:
 	var target_speed := float(SPEED_STEPS[speed_step]) * KNOT
+	if battery <= 0.5 and not diesels_running:
+		target_speed = minf(target_speed, 4.0 * KNOT)
+	if flooding > 0.6:
+		target_speed = minf(target_speed, 5.0 * KNOT)
 	speed = move_toward(speed, target_speed, dt * 0.09)
+	if helm_auto:
+		rudder = clampf(wrapf(ordered_heading - heading, -PI, PI) * 3.0, -1.0, 1.0)
+	_advance_plant(dt)
 	var turn_rate := speed / 260.0
 	heading = wrapf(heading + rudder * turn_rate * dt, -PI, PI)
 	var fwd := forward()
@@ -286,6 +336,17 @@ func advance(dt: float) -> void:
 	_roll_v += ((want_roll - _roll) * 2.2 - _roll_v * 1.1) * dt
 	_roll += _roll_v * dt
 
+	# Flooding makes the boat heavy: she sinks below her ordered depth.
+	if flooding > 0.25 and not is_surfaced():
+		depth += flooding * flooding * 0.6 * dt
+	# Depth reports for the officer of the watch.
+	if depth_mode == 1:
+		if not _approach_announced and depth > 13.0 and depth < 19.0 and _depth_rate < -0.1:
+			_approach_announced = true
+			approaching_pd.emit()
+		if not _pd_announced and absf(depth - 10.6) < 0.6:
+			_pd_announced = true
+			pd_reached.emit()
 	position.y = -depth + _heave
 	basis = Basis(Vector3.UP, -heading) * Basis(Vector3.RIGHT, _pitch) * Basis(Vector3.FORWARD, _roll)
 
@@ -319,6 +380,77 @@ func advance(dt: float) -> void:
 	_bubbles.amount_ratio = clampf(speed / 6.0, 0.2, 1.0)
 	_bow_spray.emitting = is_surfaced() and speed > 2.0
 	_bow_spray.amount_ratio = clampf(speed / 9.0, 0.1, 1.0)
+
+
+func _advance_plant(dt: float) -> void:
+	var kn := speed / KNOT
+	var submerged := depth > 3.5
+	var head_clear := depth < 12.5 and _mast_ext > 0.9 and masts_up
+	diesels_running = (not submerged) or (snorkel_ordered and head_clear)
+	# Percent per hour: hotel load plus propulsion, which rises steeply with speed.
+	var drain := 0.6 + 0.09 * pow(kn, 2.2)
+	var charge := 0.0
+	if submerged and aip_hours > 0.0 and not diesels_running:
+		charge += 4.5
+		aip_hours = maxf(aip_hours - dt / 3600.0, 0.0)
+	if diesels_running:
+		charge += 28.0 if not submerged else 32.0
+	battery = clampf(battery + (charge - drain) * dt / 3600.0, 0.0, 100.0)
+	# Damage control slowly stems leaks; pumps clear flooding.
+	if leak > 0.0:
+		leak = maxf(leak - dt * 0.0016, 0.0)
+	flooding = clampf(flooding + leak * dt * 0.004 - dt * 0.0009, 0.0, 1.0)
+	transient = maxf(transient - dt * 0.2, 0.0)
+
+
+## Radiated noise (arbitrary dB-like scale) for other ships' sonar.
+func noise_level() -> float:
+	var kn := speed / KNOT
+	var n := 98.0 + 17.0 * log(1.0 + kn) / log(10.0)
+	if kn > cavitation_speed():
+		n += 14.0
+	if diesels_running:
+		n += 22.0
+	if silent_running:
+		n -= 4.0
+	return n + transient * 18.0
+
+
+func cavitation_speed() -> float:
+	return 7.0 + depth / 12.0
+
+
+## Points along the hull for collision tests (world space).
+func hull_points() -> Array:
+	return [to_global(Vector3(0, -0.5, -34.0)), to_global(Vector3(0, 0, -14.0)), to_global(Vector3(0, 0, 8.0)), to_global(Vector3(0, -0.5, 30.0)), to_global(Vector3(0, 8.5, -15.0))]
+
+
+## Resolve a collision reported by the world: push clear, stop, take damage.
+func resolve_collision(info: Dictionary) -> float:
+	var nrm: Vector3 = info["normal"]
+	var vel := forward() * speed + Vector3(0.0, -_depth_rate, 0.0)
+	var impact := maxf(-vel.dot(nrm), 0.0)
+	var push := float(info["depth"]) + 0.3
+	if nrm.y > 0.5:
+		depth = maxf(depth - push, 2.05)
+		_depth_rate = minf(_depth_rate, 0.0)
+		_target_depth = minf(_target_depth, depth)
+	else:
+		position += Vector3(nrm.x, 0.0, nrm.z) * push
+	var dmg := 0.0
+	if impact > 0.35:
+		dmg = clampf(impact * impact * 3.2, 1.0, 45.0)
+		hull = maxf(hull - dmg, 0.0)
+		leak = clampf(leak + dmg / 60.0, 0.0, 1.0)
+		speed = speed * 0.15
+		set_speed_step(0)
+		transient = 1.0
+		damaged.emit(dmg, String(info["kind"]))
+	elif impact > 0.05:
+		hull = maxf(hull - 0.2, 0.0)
+		speed *= 0.6
+		damaged.emit(0.2, "scrape")
+	return dmg
 
 
 func _build_lights() -> void:
