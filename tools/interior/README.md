@@ -9,7 +9,8 @@ python3 -m venv /tmp/bvenv && /tmp/bvenv/bin/pip install bpy==5.3.0
 sh tools/interior/fetch_textures.sh /tmp/tex
 python3 tools/interior/make_screens.py /tmp/screens
 /tmp/bvenv/bin/python tools/interior/control_room.py -- --out assets/interior/control_room \
-    --tex /tmp/tex --screens /tmp/screens --quality final --views command,wide,sonar,nav --light normal,red
+    --tex /tmp/tex --screens /tmp/screens --crew /tmp/tex/human-base-meshes-bundle-v1.4.1/human_base_meshes_bundle.blend \
+    --quality final --views command,wide,sonar,nav --light normal,red
 python3 tools/interior/compress_plates.py assets/interior/control_room
 ```
 

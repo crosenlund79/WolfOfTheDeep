@@ -22,7 +22,7 @@ Press **1** to enter the reworked control room: a single, carefully built room s
    - **Indicator lamps:** they blink and breathe.
    - **Lighting:** red lighting fades in at night, in action, or with **R**.
    - **Presence:** a gentle head movement follows the mouse, with the boat's roll and a slow breathing drift, so the room feels occupied rather than like a photograph.
-3. **Crew.** The watch is staged with two restrained figures, seen from behind at a distance: a helmsman at the yoke and a sonar operator under a headset, both in dark coveralls and watch caps. Named characters are present through voice, as before. A navigator and a standing officer at the periscope were tried and removed, because they looked like mannequins at full resolution. The sonar operator is left out of the close sonar viewpoint for the same reason.
+3. **Crew.** The watch is staged with three figures built on realistic CC0 base meshes, posed at their stations and dressed in working coveralls: the officer of the watch beside the periscope, a helmsman at the yoke and a sonar operator under a headset. They are seen from behind or in profile. Named characters are present through voice, as before. The figures are left out of viewpoints where they would block a station.
 
 ## Controls
 
@@ -45,7 +45,7 @@ Press **1** to enter the reworked control room: a single, carefully built room s
 - **Fixed lighting states:** the plates are pre-rendered, so lighting changes are limited to normal and red. Moving lights and objects would need re-rendering.
 - **Generic static displays:** screens that are not live show static, plausible content.
 - **Made for 16:9:** on other window shapes the edges of the room are cropped.
-- **Simple figures:** the two staged crew figures hold up only at a distance. They are the weakest element and can be removed if they distract.
+- **Static figures:** the staged crew are posed, not animated, and have no facial detail; they are meant to be seen from behind or at a distance.
 - **Not played on Windows:** testing was done on Linux, with headless checks and software-rendered screenshots.
 
 ## Asset sources and licences
@@ -55,6 +55,7 @@ Press **1** to enter the reworked control room: a single, carefully built room s
 | `metal_plate` (normal and roughness maps) | Poly Haven, polyhaven.com/a/metal_plate | CC0 | Periscope stand tread plate |
 | `Rubber004` | ambientCG, ambientcg.com/view?id=Rubber004 | CC0 | Deck covering |
 | `Leather037` (normal and roughness maps) | ambientCG, ambientcg.com/view?id=Leather037 | CC0 | Seat vinyl |
+| Human Base Meshes (realistic male and female bodies, Dan Ulrich) | Blender Foundation / Blender Studio, download.blender.org/demo/asset-bundles/human-base-meshes/ | CC0 | Crew figures (posed and dressed in `tools/interior/crew.py`) |
 | DejaVu Sans / Sans Mono | Bundled with the OS | Bitstream Vera / DejaVu licence | Label text and display images baked into the plates |
 | Room model, materials, display images | Made for this project (`tools/interior/`) | Project-owned | Everything else |
 
