@@ -41,9 +41,19 @@ signal damaged(amount: float, kind: String)
 ## Pressure events below the safe depth: kind = leak / equipment / frames / collapse.
 signal pressure_event(kind: String, detail: String)
 
-## Helm: the helmsman steers to the ordered course.
+## Helm: the helmsman steers to the ordered course with a real rudder (it
+## takes time to put over) and the boat's own inertia (the swing builds and
+## must be checked). Full rudder turns her on about three boat lengths.
+const RUDDER_MAX := 35.0             # degrees
+const RUDDER_RATE := 6.0             # degrees per second
+const HELM_RUDDER := 30.0            # the most the helmsman applies on his own
+const TURN_RADIUS := 160.0           # metres at full rudder
+const YAW_TAU := 4.0                 # seconds for the swing to build or die away
 var ordered_heading := 0.0
 var helm_auto := true
+var rudder_order := 0.0              # degrees, + = right
+var rudder_angle := 0.0              # degrees, + = right
+var yaw_rate := 0.0                  # rad/s, + = turning right
 ## Electrical plant (percent) and air-independent propulsion fuel (hours).
 var battery := 82.0
 var aip_hours := 96.0
@@ -255,6 +265,16 @@ func tube_transform(tube: int) -> Transform3D:
 	return global_transform * local
 
 
+## Helm state for the displays: rudder and whether a turn is under way.
+func helm_text() -> String:
+	var r := int(round(absf(rudder_angle)))
+	var rud := "RUDDER MIDSHIPS" if r < 1 else "RUDDER %d° %s" % [r, "RIGHT" if rudder_angle > 0.0 else "LEFT"]
+	var rate := rad_to_deg(yaw_rate)
+	if absf(rate) < 0.05:
+		return rud + "  ·  STEADY"
+	return rud + "  ·  TURNING %s %.1f°/S" % ["RIGHT" if rate > 0.0 else "LEFT", absf(rate)]
+
+
 func depth_label() -> String:
 	return String(DEPTH_MODES[depth_mode]["label"])
 
@@ -301,11 +321,21 @@ func _advance_step(dt: float) -> void:
 		target_speed = minf(target_speed, 5.0 * KNOT)
 	speed = move_toward(speed, target_speed, dt * 0.09)
 	if helm_auto:
-		rudder = clampf(wrapf(ordered_heading - heading, -PI, PI) * 3.0, -1.0, 1.0)
+		# The helmsman: rudder toward the ordered course, eased and then
+		# reversed to meet her as she swings onto it.
+		var err := rad_to_deg(wrapf(ordered_heading - heading, -PI, PI))
+		rudder_order = clampf(err * 3.4 - rad_to_deg(yaw_rate) * 6.5, -HELM_RUDDER, HELM_RUDDER)
+		if absf(err) < 0.25 and absf(rad_to_deg(yaw_rate)) < 0.05:
+			rudder_order = 0.0
+	rudder_angle = move_toward(rudder_angle, rudder_order, RUDDER_RATE * dt)
+	rudder = rudder_angle / RUDDER_MAX
 	_advance_plant(dt)
 	_advance_pressure(dt)
-	var turn_rate := speed / 260.0
-	heading = wrapf(heading + rudder * turn_rate * dt, -PI, PI)
+	# Little steerage way at very low speed.
+	var eff := smoothstep(0.4, 1.6, speed)
+	var want_yaw := speed / TURN_RADIUS * rudder * eff
+	yaw_rate += (want_yaw - yaw_rate) * clampf(dt / YAW_TAU, 0.0, 1.0)
+	heading = wrapf(heading + yaw_rate * dt, -PI, PI)
 	var fwd := forward()
 	position += fwd * speed * dt
 
@@ -505,6 +535,7 @@ func cavitation_speed() -> float:
 func save_state() -> Dictionary:
 	return {
 		"pos": SaveSystem.v3(position), "heading": heading, "ordered_heading": ordered_heading, "helm_auto": helm_auto,
+		"rudder": rudder_angle, "rudder_order": rudder_order, "yaw_rate": yaw_rate,
 		"speed": speed, "speed_step": speed_step, "depth": depth, "target_depth": _target_depth, "depth_mode": depth_mode,
 		"masts_up": masts_up, "mast_ext": _mast_ext, "battery": battery, "aip_hours": aip_hours, "snorkel": snorkel_ordered,
 		"silent": silent_running, "hull": hull, "leak": leak, "flooding": flooding, "nav_lights": nav_lights,
@@ -517,6 +548,10 @@ func load_state(d: Dictionary) -> void:
 	heading = float(d.get("heading", heading))
 	ordered_heading = float(d.get("ordered_heading", heading))
 	helm_auto = bool(d.get("helm_auto", true))
+	rudder_angle = float(d.get("rudder", 0.0))
+	rudder_order = float(d.get("rudder_order", 0.0))
+	yaw_rate = float(d.get("yaw_rate", 0.0))
+	rudder = rudder_angle / RUDDER_MAX
 	speed = float(d.get("speed", speed))
 	speed_step = int(d.get("speed_step", speed_step))
 	depth = float(d.get("depth", depth))

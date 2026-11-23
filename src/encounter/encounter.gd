@@ -7,9 +7,11 @@ extends Node
 signal message(text: String)
 signal torpedo_fired(torpedo: Torpedo)
 signal target_hit(ship: SurfaceShip)
+## Stages of an attack as the boat knows them: launch, seeker telemetry,
+## suspected / confirmed miss, impact, result unknown, post-attack assessment.
+signal engagement(kind: String, text: String)
 
 const RELOAD_TIME := 6.0
-const SOLUTION_TIME := 3.0
 const TUBES := 4
 
 var sub: Submarine
@@ -22,6 +24,16 @@ var target: SurfaceShip
 var ships: Array[Node3D] = []
 
 var torpedoes: Array[Torpedo] = []
+var weather: Weather
+var sensors: SensorSuite
+## The attack party's estimate of the target (see FireControl).
+var fc := FireControl.new()
+## One record per torpedo fired: what was known and what came back.
+var engagements: Array = []
+## Developer / test scenarios only: exact technical outcome of each run.
+var dev_diag := false
+var _last_heading := 0.0
+## 0..1 solution quality (kept for meters): FIRM = 1.
 var solution := 0.0
 var locked: SurfaceShip
 var reload := 0.0
@@ -82,7 +94,11 @@ func advance(dt: float, scope_active: bool) -> void:
 				continue
 			var rel := ship.global_position - sub.global_position
 			var dist := Vector2(rel.x, rel.z).length()
-			if dist > 7000.0:
+			# Only what can be seen can be tracked through the periscope.
+			var eye := 14000.0
+			if weather and weather.arctic:
+				eye = minf(weather.visibility_m() * (1.0 - weather.darkness() * 0.6), 14000.0)
+			if dist > minf(7000.0, eye):
 				continue
 			var brg := atan2(rel.x, -rel.z)
 			var off := absf(wrapf(brg - rig.bearing, -PI, PI))
@@ -91,9 +107,18 @@ func advance(dt: float, scope_active: bool) -> void:
 				best = off
 				locked = ship
 	if locked:
-		solution = minf(solution + dt / SOLUTION_TIME, 1.0)
+		fc.observe(locked, sub.global_position, dt, FireControl.conditions(weather), sensors.contact_for(locked) if sensors else null)
 	else:
-		solution = maxf(solution - dt / 4.0, 0.0)
+		fc.age(dt)
+	solution = fc.quality_value()
+	# A hard turn or a deep dive parts the guidance wires.
+	var turn_rate := absf(wrapf(sub.heading - _last_heading, -PI, PI)) / maxf(dt, 0.001)
+	_last_heading = sub.heading
+	if turn_rate > deg_to_rad(3.0) or sub.depth > 150.0:
+		for t0 in torpedoes:
+			if is_instance_valid(t0) and not t0.done:
+				t0.cut_wire()
+	_track_engagements(dt)
 	for t in torpedoes.duplicate():
 		if not is_instance_valid(t):
 			torpedoes.erase(t)
@@ -120,15 +145,29 @@ func fire() -> bool:
 		return false
 	var from := sub.tube_transform(tube)
 	var course := rig.bearing
-	if locked and solution > 0.02:
-		course = lerp_angle(course, _intercept_course(from.origin, locked), solution)
-	# Gyro and drift error: smaller with a good solution.
-	course += deg_to_rad(randfn(0.0, 0.3 + (1.0 - solution) * 0.8))
+	var res := {}
+	if fc.has_solution():
+		res = fc.lead(from)
+		if not res.is_empty():
+			course = float(res["course"])
+	# Gyro setting error.
+	course += deg_to_rad(randfn(0.0, 0.25))
 	var torp := Torpedo.new()
 	torp.name = "Torpedo%d" % (fired + 1)
 	torp.targets = ships
+	if fc.target:
+		torp.run_depth = clampf(fc.target.draft * 0.6 + 1.0, 2.5, 6.0)
+	var hs := float(weather.current.get("hs", 1.5)) if weather else 1.5
+	torp.sea_factor = clampf(1.15 - hs / 6.0, 0.5, 1.0)
 	world.add_child(torp)
 	torp.launch(from, course)
+	var c := sensors.contact_for(fc.target) if sensors and fc.target else null
+	var rec := {"n": fired + 1, "tube": tube + 1, "age": 0.0, "contact": c.id if c else "", "quality": fc.quality(), "summary": fc.summary(),
+		"est_course": fc.est_course, "est_speed": fc.est_speed, "est_range": fc.est_range, "expected": float(res.get("t", -1.0)),
+		"in_reach": bool(res.get("in_reach", true)), "state": "running", "events": [], "torp": torp, "target": fc.target,
+		"true_heading": fc.target.heading if fc.target else 0.0, "gyro": fposmod(rad_to_deg(course), 360.0)}
+	engagements.append(rec)
+	torp.telemetry.connect(_on_telemetry.bind(rec))
 	torp.struck.connect(_on_struck.bind(torp))
 	torp.ran_out.connect(_on_ran_out.bind(torp))
 	torpedoes.append(torp)
@@ -148,24 +187,91 @@ func fire() -> bool:
 	fired += 1
 	if not unlimited:
 		sub.torpedoes = maxi(sub.torpedoes - 1, 0)
-	var aim := "SOLUTION %d%%" % int(solution * 100.0) if locked else "NO SOLUTION  ·  STRAIGHT RUN"
+	var aim := "SOLUTION %s" % String(rec["quality"]) if fc.has_solution() else "NO SOLUTION  ·  STRAIGHT RUN"
 	message.emit("TORPEDO AWAY  ·  TUBE %d  ·  %s" % [(tube + TUBES - 1) % TUBES + 1, aim])
+	var exp_txt := ""
+	if float(rec["expected"]) > 0.0:
+		exp_txt = ", run to the expected intercept about %d:%02d" % [int(float(rec["expected"])) / 60, int(float(rec["expected"])) % 60]
+	var launch := "Launch confirmed, T%d from tube %d, gyro %03d%s. Solution %s (%s)." % [int(rec["n"]), int(rec["tube"]), int(rec["gyro"]), exp_txt, String(rec["quality"]).to_lower(), String(rec["summary"]).to_lower()]
+	if not bool(rec["in_reach"]):
+		launch += " The target is estimated to be beyond the weapon's reach."
+	engagement.emit("launch", launch)
 	torpedo_fired.emit(torp)
 	return true
 
 
-func _intercept_course(from: Vector3, ship: SurfaceShip) -> float:
-	var v := ship.forward() * ship.speed
-	var aim := ship.global_position
-	var t := 0.0
-	for _i in 6:
-		t = Vector2(aim.x - from.x, aim.z - from.z).length() / Torpedo.RUN_SPEED + 1.6
-		aim = ship.global_position + v * t
-	return atan2(aim.x - from.x, -(aim.z - from.z))
+func _on_telemetry(kind: String, rec: Dictionary) -> void:
+	(rec["events"] as Array).append(kind)
+	match kind:
+		"seeker_on":
+			engagement.emit("telemetry", "T%d: seeker enabled (telemetry)." % int(rec["n"]))
+		"acquired":
+			engagement.emit("telemetry", "T%d: seeker has acquired a target (telemetry)." % int(rec["n"]))
+		"lost":
+			engagement.emit("telemetry", "T%d: seeker has lost its target (telemetry)." % int(rec["n"]))
+		"wire_cut":
+			engagement.emit("telemetry", "T%d: guidance wire parted; no more telemetry." % int(rec["n"]))
+
+
+## Watch each run against what was expected: a suspected miss when the time
+## is up and nothing has gone off; confirmed only with evidence.
+func _track_engagements(dt: float) -> void:
+	for rec in engagements:
+		if String(rec["state"]) in ["hit", "miss_confirmed", "unknown", "assessed"]:
+			continue
+		rec["age"] = float(rec["age"]) + dt
+		var torp: Torpedo = rec["torp"] if is_instance_valid(rec["torp"]) else null
+		var exp_t := float(rec["expected"])
+		if String(rec["state"]) == "running" and exp_t > 0.0 and float(rec["age"]) > exp_t + 20.0:
+			rec["state"] = "suspected_miss"
+			engagement.emit("suspected", "T%d: the expected intercept time has passed with no detonation. Suspected miss." % int(rec["n"]))
+		if torp == null or torp.done:
+			if String(rec["state"]) in ["running", "suspected_miss"]:
+				if (rec["events"] as Array).has("run_complete"):
+					rec["state"] = "miss_confirmed"
+					engagement.emit("miss", "T%d ran out its fuel without detonating (telemetry). Confirmed miss." % int(rec["n"]))
+				else:
+					rec["state"] = "unknown"
+					engagement.emit("unknown", "T%d: run over; no telemetry and nothing heard. Result unknown." % int(rec["n"]))
+				_assess(rec)
+
+
+## What the attack party can say about why it missed: only what telemetry or
+## their own observation supports is called confirmed or observed.
+func _assess(rec: Dictionary) -> void:
+	var lines: Array[String] = []
+	var ev: Array = rec["events"]
+	if not bool(rec["in_reach"]):
+		lines.append("she was beyond the weapon's reach when we fired (confirmed by the fire-control plot)")
+	if ev.has("run_complete") and ev.has("seeker_on") and not ev.has("acquired"):
+		lines.append("the seeker never acquired a target (confirmed by telemetry)")
+	if ev.has("acquired") and ev.has("lost"):
+		lines.append("the seeker acquired and then lost its target (confirmed by telemetry)")
+	if fc.target == rec["target"] and fc.target != null and fc.obs_time > 20.0:
+		var dc := absf(wrapf(fc.est_course - float(rec["est_course"]), -180.0, 180.0))
+		var ds := fc.est_speed - float(rec["est_speed"])
+		if dc > 20.0:
+			lines.append("she has altered course by about %d° since we fired (observed at the periscope)" % int(round(dc / 5.0) * 5.0))
+		if absf(ds) > 2.5:
+			lines.append("our speed estimate was about %d kt %s (assessment from later observation)" % [int(round(absf(ds))), "low" if ds > 0.0 else "high"])
+	if lines.is_empty():
+		lines.append("no cause established; the solution was %s, she may have manoeuvred unseen, or the weapon may have misbehaved (possible causes only)" % String(rec["quality"]).to_lower())
+	var text := "Post-attack assessment, T%d: %s." % [int(rec["n"]), "; ".join(lines)]
+	if dev_diag:
+		var tgt: SurfaceShip = rec["target"] if is_instance_valid(rec["target"]) else null
+		var turned := absf(rad_to_deg(wrapf(tgt.heading - float(rec["true_heading"]), -PI, PI))) if tgt else 0.0
+		text += "  [DEV] closest approach %d m; seeker %s; target turned %d° during the run; telemetry %s." % [
+			int(float(rec.get("closest", -1.0))), "acquired" if ev.has("acquired") else "never acquired", int(turned), ", ".join(ev)]
+	engagement.emit("assessment", text)
 
 
 func _on_struck(ship: SurfaceShip, point: Vector3, torp: Torpedo) -> void:
 	hits += 1
+	_keep_closest(torp)
+	for rec in engagements:
+		if rec["torp"] == torp:
+			rec["state"] = "hit"
+			engagement.emit("impact", "T%d: detonation at %d:%02d into the run. Impact detected." % [int(rec["n"]), int(float(rec["age"])) / 60, int(float(rec["age"])) % 60])
 	var boom := Explosion.new()
 	world.add_child(boom)
 	boom.global_position = Vector3(point.x, 0.0, point.z)
@@ -182,8 +288,16 @@ func _on_struck(ship: SurfaceShip, point: Vector3, torp: Torpedo) -> void:
 
 
 func _on_ran_out(torp: Torpedo) -> void:
+	_keep_closest(torp)
+	if torp.wire_ok:
+		message.emit("TORPEDO RUN COMPLETE  ·  NO DETONATION")
 	_retire(torp)
-	message.emit("TORPEDO ENDED ITS RUN  ·  MISS")
+
+
+func _keep_closest(torp: Torpedo) -> void:
+	for rec in engagements:
+		if rec["torp"] == torp:
+			rec["closest"] = torp.closest
 
 
 func _retire(torp: Torpedo) -> void:

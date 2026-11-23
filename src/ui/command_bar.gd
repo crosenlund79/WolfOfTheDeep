@@ -136,7 +136,14 @@ func _process(_delta: float) -> void:
 	var depth_now := sub.depth if sub.depth >= 3.0 else 0.0
 	var keel: float = main.under_keel() if main.has_method("under_keel") else -1.0
 	var keel_txt := "  KEEL %3dM" % int(keel) if keel >= 0.0 and not sub.is_surfaced() else ""
-	_values.text = "HDG %03d›%03d   %4.1f KT   DEPTH %5.1f M%s   BATT %d%%   HULL %d%%" % [int(hdg) % 360, int(round(ordered)) % 360, sub.knots(), depth_now, keel_txt, int(sub.battery), int(sub.hull)]
+	var r := int(round(absf(sub.rudder_angle)))
+	var turn := rad_to_deg(sub.yaw_rate)
+	var helm := ""
+	if r >= 1:
+		helm += " RUD %d%s" % [r, "R" if sub.rudder_angle > 0.0 else "L"]
+	if absf(turn) >= 0.05:
+		helm += " %s" % ("↻" if turn > 0.0 else "↺")
+	_values.text = "HDG %03d›%03d%s   %4.1f KT   DEPTH %5.1f M%s   BATT %d%%   HULL %d%%" % [int(hdg) % 360, int(round(ordered)) % 360, helm, sub.knots(), depth_now, keel_txt, int(sub.battery), int(sub.hull)]
 	_values.add_theme_color_override("font_color", UiStyle.AMBER if sub.depth > Submarine.SAFE_DEPTH or sub.hull < 60.0 else UiStyle.WHITE)
 	var clock: GameClock = main.clock
 	_time.text = "%s  ×%s" % [clock.time_string(), main.time_label() if main.has_method("time_label") else str(int(clock.scale()))]

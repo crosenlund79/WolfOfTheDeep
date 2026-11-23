@@ -70,6 +70,8 @@ func _process(_delta: float) -> void:
 	var lines := [
 		"DEPTH   %5.1f M  %s" % [sub.depth, _arrow(sub)],
 		"ORDER   %s" % sub.depth_label(),
+		"HELM    %03d › %03d" % [int(round(fposmod(rad_to_deg(sub.heading), 360.0))) % 360, int(round(fposmod(rad_to_deg(sub.ordered_heading), 360.0))) % 360],
+		"        %s" % sub.helm_text().to_lower(),
 		"SCOPE   %s" % (("RAISED · " if sub.masts_up else "LOWERED · ") + scope_txt),
 		"TUBES   %s" % ("READY" if enc.can_fire() else "RELOAD %d S" % ceili(enc.reload)),
 	]

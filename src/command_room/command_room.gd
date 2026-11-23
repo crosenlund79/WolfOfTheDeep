@@ -514,7 +514,7 @@ func _draw_ship_control() -> void:
 		"SPEED      %5.1f KT" % sub.knots(),
 		"TELEGRAPH  %s" % sub.speed_label(),
 		"HEADING    %03d°" % int(fposmod(rad_to_deg(sub.heading), 360.0)),
-		"RUDDER     %+4.0f°" % (sub.rudder * 25.0),
+		"RUDDER     %+4.0f°" % sub.rudder_angle,
 		"PROPULSION AIP  ·  BATTERY 86%",
 		"MASTS      %s" % ("RAISED" if sub.masts_up else "HOUSED"),
 	]

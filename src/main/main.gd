@@ -269,6 +269,8 @@ func _ready() -> void:
 	encounter.audio = audio
 	encounter.wake_map = wake_map
 	encounter.ships = ships
+	encounter.weather = weather
+	encounter.sensors = sensors
 	add_child(encounter)
 	encounter.setup(self, ships[0] as SurfaceShip)
 
@@ -530,6 +532,7 @@ func _connect_signals() -> void:
 		periscope_ui.torpedo_away()
 		dialogue.say("miller", VOICE_TEXT["vo_miller_torpedo_away"], Dialogue.P.CRITICAL, "vo_miller_torpedo_away"))
 	encounter.target_hit.connect(_on_target_hit)
+	encounter.engagement.connect(_on_engagement)
 	chart.course_ordered.connect(_on_course_ordered)
 	chart.request.connect(_on_chart_request)
 	sub.pressure_event.connect(_on_pressure_event)
@@ -2098,6 +2101,23 @@ func _fire() -> void:
 		_drop_time()
 
 
+## The attack as the boat knows it, stage by stage.
+func _on_engagement(kind: String, text: String) -> void:
+	clog("COMBAT", text, "confirmed" if kind in ["launch", "impact", "telemetry", "miss"] else ("unresolved" if kind in ["unknown", "suspected"] else "assessment"))
+	match kind:
+		"suspected":
+			if not asleep:
+				dialogue.say("freja", "Time's up for the intercept, Captain. No detonation. I think it's missed.", Dialogue.P.CRITICAL)
+		"miss":
+			if not asleep:
+				dialogue.say("freja", "Wire says the run is over and no detonation. It missed.", Dialogue.P.REPORT)
+		"assessment":
+			hud.toast("POST-ATTACK ASSESSMENT  ·  L  TO READ")
+		"telemetry":
+			if text.contains("acquired") and not asleep and _cd("seeker", 20.0):
+				dialogue.say("freja", "Weapon has acquired, Captain.", Dialogue.P.REPORT)
+
+
 ## What is in the sights, as the attack party sees it.
 func _fire_context() -> Dictionary:
 	var best: SurfaceShip = encounter.locked
@@ -2438,6 +2458,8 @@ func _close_overlay() -> bool:
 
 func _apply_settings() -> void:
 	audio.apply_settings()
+	# Exact weapon diagnostics only with the developer tools switched on.
+	encounter.dev_diag = bool(Settings.get_v("developer"))
 	_performance = String(Settings.get_v("graphics")) == "performance"
 	_apply_quality()
 	var w := get_window()

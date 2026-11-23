@@ -243,7 +243,15 @@ func _draw() -> void:
 		var sb := fposmod(rad_to_deg(atan2(rel.x, -rel.z)), 360.0)
 		var tag := "  ·  SINKING" if ship.is_sinking() else ("  ·  LOCKED" if is_locked else "")
 		draw_string(f, r.position + Vector2(0, -8), "TRK %02d  ·  %s%s" % [i, ship.contact_name, tag], HORIZONTAL_ALIGNMENT_LEFT, 500, 12, bc)
-		draw_string(f, r.position + Vector2(0, r.size.y + 16), "BRG %05.1f   RNG %.1f KM   AOB %s" % [sb, dist / 1000.0, _aob(ship, rel)], HORIZONTAL_ALIGNMENT_LEFT, 400, 11, Color(1.0, 0.8, 0.35, 0.8))
+		# Only the attack party's estimates: range and angle on the bow come
+		# from the stadimeter and from watching her, never from the truth.
+		var data := "BRG %05.1f" % sb
+		if is_locked and encounter.fc.has_solution():
+			var fc := encounter.fc
+			var los := rad_to_deg(atan2(-rel.x, rel.z))
+			var a := wrapf(fc.est_course - los, -180.0, 180.0)
+			data += "   RNG %.1f KM ±%d%%   AOB %s%03d (EST)" % [fc.est_range / 1000.0, int(round(fc.range_sd * 100.0)), "S" if a >= 0.0 else "P", int(absf(a))]
+		draw_string(f, r.position + Vector2(0, r.size.y + 16), data, HORIZONTAL_ALIGNMENT_LEFT, 500, 11, Color(1.0, 0.8, 0.35, 0.8))
 		i += 1
 
 	# Data blocks.
@@ -292,12 +300,33 @@ func _draw_fire_control(vp: Vector2, cx: float, cy: float, px_per_deg: float, br
 	var y0 := by + 16.0
 	draw_rect(Rect2(x0, y0, w, 8), Color(1, 1, 1, 0.15))
 	draw_rect(Rect2(x0, y0, w * encounter.solution, 8), amber if encounter.solution < 0.99 else Color(0.45, 1.0, 0.6))
-	var sol_txt := "SOLUTION  %d%%" % int(encounter.solution * 100.0)
+	var fcq := encounter.fc.quality()
+	var sol_txt := "SOLUTION QUALITY  %s" % fcq
 	if encounter.locked:
-		sol_txt += "   ·   TRACKING  " + encounter.locked.contact_name.split("  ")[0]
+		sol_txt += "   ·   " + encounter.fc.summary()
+	elif encounter.fc.has_solution():
+		sol_txt += "   ·   HELD, AGEING  (%d S OFF THE CROSSHAIR)" % int(encounter.fc.held)
 	else:
-		sol_txt += "   ·   PUT THE CROSSHAIR ON A SHIP"
-	draw_string(f, Vector2(cx - 300, y0 + 28), sol_txt, HORIZONTAL_ALIGNMENT_CENTER, 600, 12, amber)
+		sol_txt += "   ·   PUT THE CROSSHAIR ON A SHIP AND WATCH HER"
+	draw_string(f, Vector2(cx - 450, y0 + 28), sol_txt, HORIZONTAL_ALIGNMENT_CENTER, 900, 12, amber)
+	draw_string(f, Vector2(cx - 450, y0 + 44), "how well her motion is known  ·  not a chance of a hit", HORIZONTAL_ALIGNMENT_CENTER, 900, 10, Color(amber.r, amber.g, amber.b, 0.55))
+	# Running torpedoes: what the wire tells us.
+	var ry := y0 + 62.0
+	for rec in encounter.engagements:
+		if String(rec["state"]) not in ["running", "suspected_miss"]:
+			continue
+		var ev: Array = rec["events"]
+		var seek := "SEEKER ACQUIRED" if ev.has("acquired") and not ev.has("lost") else ("SEEKER ON" if ev.has("seeker_on") else "SEEKER SAFE")
+		if ev.has("wire_cut"):
+			seek = "WIRE PARTED"
+		var exp_t := float(rec["expected"])
+		var line := "T%d  %d:%02d  ·  %s" % [int(rec["n"]), int(float(rec["age"])) / 60, int(float(rec["age"])) % 60, seek]
+		if exp_t > 0.0:
+			line += "  ·  INTERCEPT ~%d:%02d" % [int(exp_t) / 60, int(exp_t) % 60]
+		if String(rec["state"]) == "suspected_miss":
+			line += "  ·  SUSPECTED MISS"
+		draw_string(f, Vector2(cx - 450, ry), line, HORIZONTAL_ALIGNMENT_CENTER, 900, 12, Color(0.5, 0.9, 1.0))
+		ry += 16.0
 	# Running torpedoes on the bearing tape and in view.
 	var n := 1
 	for t in encounter.torpedoes:
@@ -327,12 +356,6 @@ func _brackets(r: Rect2, c: Color) -> void:
 		var o: Vector2 = corner[0]
 		draw_line(o, o + corner[1] * l, c, 1.5)
 		draw_line(o, o + corner[2] * l, c, 1.5)
-
-
-func _aob(ship: SurfaceShip, rel: Vector3) -> String:
-	var los := atan2(-rel.x, rel.z)
-	var a := rad_to_deg(wrapf(los - ship.heading, -PI, PI))
-	return "%s%03d" % ["S" if a >= 0.0 else "P", int(absf(a))]
 
 
 func _block(pos: Vector2, lines: Array, c: Color, right: bool = false) -> void:
