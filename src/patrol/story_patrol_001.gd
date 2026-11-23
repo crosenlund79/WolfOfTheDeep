@@ -64,6 +64,7 @@ func _ship(world: Node3D, ocean: Ocean, kind: SurfaceShip.Kind, vname: String, r
 	s.vessel_name = vname
 	s.ocean = ocean
 	s.name = role.capitalize()
+	s.uid = role
 	s.recycle = false
 	world.add_child(s)
 	ships[role] = s
@@ -293,3 +294,14 @@ func debrief_notes() -> Array[String]:
 	if f.has("fired"):
 		out.append("We fired a weapon in peacetime. Whatever else happened on this patrol, that is what it will be remembered for.")
 	return out
+
+
+func save_state() -> Dictionary:
+	return {"stage": stage, "acc": _acc, "rng": _rng.state}
+
+
+func load_state(d: Dictionary) -> void:
+	stage = d.get("stage", {})
+	_acc = float(d.get("acc", 0.0))
+	if d.has("rng"):
+		_rng.state = int(d["rng"])

@@ -63,3 +63,59 @@ static func place(c: Control, anchor: Vector2, offset: Vector2, size: Vector2) -
 	c.offset_top = offset.y
 	c.offset_right = offset.x + size.x
 	c.offset_bottom = offset.y + size.y
+
+
+static func panel_style(alpha: float = 0.93, margin: int = 18) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.015, 0.028, 0.038, alpha)
+	sb.border_color = LINE
+	sb.set_border_width_all(1)
+	sb.set_content_margin_all(margin)
+	return sb
+
+
+## A flat naval-console button.
+static func button(text: String, size: int = 15, min_w: float = 0.0) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.custom_minimum_size = Vector2(min_w, 0)
+	b.add_theme_font_override("font", display())
+	b.add_theme_font_size_override("font_size", size)
+	b.add_theme_color_override("font_color", WHITE)
+	b.add_theme_color_override("font_hover_color", CYAN)
+	b.add_theme_color_override("font_pressed_color", CYAN)
+	b.add_theme_color_override("font_disabled_color", Color(0.5, 0.55, 0.6, 0.45))
+	for st in ["normal", "hover", "pressed", "disabled", "focus"]:
+		var bs := StyleBoxFlat.new()
+		bs.bg_color = Color(0.1, 0.2, 0.26, 0.65) if st == "hover" or st == "pressed" else Color(0.04, 0.07, 0.09, 0.6)
+		bs.border_color = Color(0.3, 0.55, 0.65, 0.45 if st != "disabled" else 0.12)
+		bs.set_border_width_all(1)
+		bs.content_margin_left = 12
+		bs.content_margin_right = 12
+		bs.content_margin_top = 5
+		bs.content_margin_bottom = 5
+		if st == "focus":
+			bs.draw_center = false
+		b.add_theme_stylebox_override(st, bs)
+	return b
+
+
+## A toggle button used for filters and tabs (highlighted when on).
+static func toggle(text: String, on: bool, size: int = 13) -> Button:
+	var b := button(text, size)
+	b.toggle_mode = true
+	b.button_pressed = on
+	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var on_sb := StyleBoxFlat.new()
+	on_sb.bg_color = Color(0.12, 0.3, 0.38, 0.85)
+	on_sb.border_color = CYAN
+	on_sb.set_border_width_all(1)
+	on_sb.content_margin_left = 10
+	on_sb.content_margin_right = 10
+	on_sb.content_margin_top = 4
+	on_sb.content_margin_bottom = 4
+	b.add_theme_stylebox_override("pressed", on_sb)
+	b.add_theme_stylebox_override("hover_pressed", on_sb)
+	return b

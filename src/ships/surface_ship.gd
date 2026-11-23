@@ -30,6 +30,8 @@ var route_index := 0
 var route_loop := true
 var cruise_knots := 12.0
 var vessel_name := ""
+## Stable identity across saves (story role or world-traffic id).
+var uid := ""
 var ais_on := true
 var source_level := 172.0
 var submerged := false
@@ -39,6 +41,8 @@ var _foundering := false
 var fishing_center := Vector3.ZERO
 var fishing_radius := 2000.0
 var suspicion := 0.0
+## Physical damage state (simulation truth; the crew only ever sees assessments).
+var damage := {"hull": 0.0, "propulsion": 0.0, "steering": 0.0, "flooding": 0.0, "fire": 0.0, "list": 0.0, "sensors": 0.0, "weapons": 0.0}
 var datum := Vector3.ZERO
 var _behavior_t := 0.0
 var _ping_t := 300.0
@@ -152,6 +156,62 @@ func place(pos: Vector3, p_heading: float, knots: float) -> void:
 
 func forward() -> Vector3:
 	return Vector3(sin(heading), 0.0, -cos(heading))
+
+
+func save_state() -> Dictionary:
+	var rt: Array = []
+	for p in route:
+		rt.append(SaveSystem.v3(p))
+	return {
+		"uid": uid, "pos": SaveSystem.v3(position), "heading": heading, "speed": speed, "behavior": behavior,
+		"route": rt, "route_index": route_index, "route_loop": route_loop, "cruise_knots": cruise_knots,
+		"suspicion": suspicion, "datum": SaveSystem.v3(datum), "behavior_t": _behavior_t, "ping_t": _ping_t,
+		"state": int(state), "visible": visible, "submerged": submerged, "run_depth": run_depth,
+		"drift": SaveSystem.v3(drift_velocity), "fishing_center": SaveSystem.v3(fishing_center), "fishing_radius": fishing_radius,
+		"ais_on": ais_on, "recycle": recycle, "sink_t": _sink_t, "sink_depth": _sink_depth, "list": _list, "trim": _trim,
+		"list_side": _list_side, "trim_sign": _trim_sign, "hits": _hits, "damage": damage.duplicate(true),
+	}
+
+
+func load_state(d: Dictionary) -> void:
+	position = SaveSystem.to_v3(d.get("pos"), position)
+	heading = float(d.get("heading", heading))
+	speed = float(d.get("speed", speed))
+	behavior = String(d.get("behavior", behavior))
+	route.clear()
+	for p in d.get("route", []):
+		route.append(SaveSystem.to_v3(p))
+	route_index = int(d.get("route_index", 0))
+	route_loop = bool(d.get("route_loop", route_loop))
+	cruise_knots = float(d.get("cruise_knots", cruise_knots))
+	suspicion = float(d.get("suspicion", 0.0))
+	datum = SaveSystem.to_v3(d.get("datum"), datum)
+	_behavior_t = float(d.get("behavior_t", 0.0))
+	_ping_t = float(d.get("ping_t", _ping_t))
+	state = int(d.get("state", 0)) as State
+	visible = bool(d.get("visible", visible))
+	submerged = bool(d.get("submerged", submerged))
+	run_depth = float(d.get("run_depth", run_depth))
+	drift_velocity = SaveSystem.to_v3(d.get("drift"), drift_velocity)
+	fishing_center = SaveSystem.to_v3(d.get("fishing_center"), fishing_center)
+	fishing_radius = float(d.get("fishing_radius", fishing_radius))
+	ais_on = bool(d.get("ais_on", ais_on))
+	recycle = bool(d.get("recycle", recycle))
+	_sink_t = float(d.get("sink_t", 0.0))
+	_sink_depth = float(d.get("sink_depth", 0.0))
+	_list = float(d.get("list", 0.0))
+	_trim = float(d.get("trim", 0.0))
+	_list_side = float(d.get("list_side", 1.0))
+	_trim_sign = float(d.get("trim_sign", 1.0))
+	_hits = int(d.get("hits", 0))
+	var dm: Variant = d.get("damage")
+	if dm is Dictionary:
+		damage = dm
+	if state == State.SUNK:
+		visible = false
+	elif state == State.STRICKEN:
+		for light in _lights:
+			light.visible = false
 
 
 func is_afloat() -> bool:

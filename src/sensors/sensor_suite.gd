@@ -133,8 +133,11 @@ func _tick(dt: float) -> void:
 		var bias := Vector3(c.bias_dir.x, 0.0, c.bias_dir.y) * c.range_err * dist * 0.8
 		c.est_pos = v.global_position + bias
 		c.range_est = Vector2(c.est_pos.x - sub.global_position.x, c.est_pos.z - sub.global_position.z).length()
+		c.add_fix(now, c.est_pos)
 		var before := c.classification
 		c.classification = _classify(v, c.class_progress)
+		if c.affiliation == "UNKNOWN" or c.affiliation == "NEUTRAL" or c.affiliation == "SUSPECT":
+			c.affiliation = _perceived(c)
 		if not c.announced or was_lost:
 			c.announced = true
 			contact_new.emit(c)
@@ -212,6 +215,16 @@ static func _classify(v: SurfaceShip, progress: float) -> String:
 			return "WARSHIP"
 
 
+## Affiliation the crew would assume from what they know (intel may override).
+static func _perceived(c: Contact) -> String:
+	match c.classification:
+		"MERCHANT", "FISHING", "RESEARCH":
+			return "NEUTRAL"
+		"WARSHIP", "SUBMARINE":
+			return "SUSPECT"
+	return "UNKNOWN"
+
+
 static func _ais_type(v: SurfaceShip) -> String:
 	match v.kind:
 		SurfaceShip.Kind.MERCHANT:
@@ -246,3 +259,38 @@ func tracked_vessels() -> Array[Contact]:
 		if c.kind == "VESSEL" and c.status == "TRACKING":
 			out.append(c)
 	return out
+
+
+func save_state() -> Dictionary:
+	var cs: Array = []
+	for c in contacts:
+		cs.append(c.save_state())
+	return {"contacts": cs, "next_id": _next_id, "ice_id": _ice_id}
+
+
+func load_state(d: Dictionary) -> void:
+	contacts.clear()
+	_by_vessel.clear()
+	_by_berg.clear()
+	_next_id = int(d.get("next_id", 1))
+	_ice_id = int(d.get("ice_id", 1))
+	var by_uid := {}
+	for n in vessels:
+		by_uid[(n as SurfaceShip).uid] = n
+	var bergs_by_id := {}
+	for b in area.bergs:
+		bergs_by_id[String(b["id"])] = b
+	for cd in d.get("contacts", []):
+		var c := Contact.new()
+		c.load_state(cd)
+		var vu := String(cd.get("vessel", ""))
+		if vu != "" and by_uid.has(vu):
+			c.vessel = by_uid[vu]
+			_by_vessel[c.vessel] = c
+		var bid := String(cd.get("berg", ""))
+		if bid != "" and bergs_by_id.has(bid):
+			c.berg = bergs_by_id[bid]
+			_by_berg[bid] = c
+		if c.kind == "VESSEL" and c.vessel == null:
+			c.status = "LOST"
+		contacts.append(c)

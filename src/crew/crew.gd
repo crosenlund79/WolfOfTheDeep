@@ -33,7 +33,6 @@ var _rng := RandomNumberGenerator.new()
 func _ready() -> void:
 	_rng.randomize()
 	_build_roster()
-	load_state()
 
 
 func _add(id: String, name_v: String, short_v: String, rank_v: String, role_v: String, nat: String, color: Color, principal_v: bool, routine_v: Array, skills_v: Dictionary, covers_v: Array[String], poker_v: Dictionary) -> CrewMember:
@@ -329,26 +328,25 @@ func remember_all(entry: String) -> void:
 		(members[id] as CrewMember).remember(entry)
 
 
-# --- persistence (candy, relationships, history) -----------------------------
+# --- persistence (part of each campaign save) --------------------------------
 
-func save_state() -> void:
+func save_state() -> Dictionary:
 	var d := {}
 	for m in members.values():
 		d[(m as CrewMember).id] = (m as CrewMember).to_dict()
-	d["_captain"] = {"candy": captain_candy}
-	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-	if f:
-		f.store_string(JSON.stringify(d, "  "))
+	return {"members": d, "candy": captain_candy, "alert": alert, "silent": silent_running, "meals": _meals_done,
+		"miller_conn": miller_has_conn}
 
 
-func load_state() -> void:
-	if not FileAccess.file_exists(SAVE_PATH):
-		return
-	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
-	if parsed is Dictionary:
-		var cap: Variant = (parsed as Dictionary).get("_captain")
-		if cap is Dictionary and (cap as Dictionary).get("candy") is Dictionary:
-			captain_candy = (cap as Dictionary)["candy"]
-		for id in (parsed as Dictionary).keys():
+func load_state(d: Dictionary) -> void:
+	var ms: Variant = d.get("members")
+	if ms is Dictionary:
+		for id in (ms as Dictionary).keys():
 			if members.has(id):
-				(members[id] as CrewMember).from_dict(parsed[id])
+				(members[id] as CrewMember).from_dict(ms[id])
+	if d.get("candy") is Dictionary:
+		captain_candy = d["candy"]
+	alert = int(d.get("alert", 0))
+	silent_running = bool(d.get("silent", false))
+	_meals_done = d.get("meals", {})
+	miller_has_conn = bool(d.get("miller_conn", false))

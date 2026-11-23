@@ -12,6 +12,8 @@ const REST_SCALE := 150.0
 
 var seconds := START_SECONDS
 var level := 0
+## Developer override (0 = use the selected level).
+var custom_scale := 0.0
 
 
 func advance(dt: float) -> void:
@@ -19,10 +21,13 @@ func advance(dt: float) -> void:
 
 
 func scale() -> float:
+	if custom_scale > 0.0:
+		return custom_scale
 	return float(LEVELS[level])
 
 
 func set_level(l: int) -> void:
+	custom_scale = 0.0
 	level = clampi(l, 0, LEVELS.size() - 1)
 
 

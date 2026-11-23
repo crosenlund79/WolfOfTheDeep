@@ -20,6 +20,9 @@ var _blackout := 0.0
 var mode := 0
 var _post: ColorRect
 var _post_mat: ShaderMaterial
+var _sheet := 0.0
+var _drain := 1.0
+var _drops := 0.0
 var _wash := 0.0
 var _flash := 0.0
 var _rec_t := 0.0
@@ -112,16 +115,34 @@ func _process(delta: float) -> void:
 	_rec_t += delta
 	_flash = maxf(_flash - delta * 1.6, 0.0)
 	_status_t -= delta
-	# Water on the window after the mast clears the surface.
+	# Water on the window: when the head breaks the surface a film drains from
+	# the top and a few droplets run off. Calm sea: almost nothing. Rough sea:
+	# more water and the occasional sheet of spray. Nothing stays on the glass.
 	var sub_d := clampf(mast_submerged * 3.0, 0.0, 1.0)
-	if mast_submerged > -0.25:
-		_wash = 1.0
+	var hs := float(weather.current.get("hs", 1.0)) if weather else 1.0
+	var sea := clampf((hs - 0.6) / 3.2, 0.0, 1.0)
+	var under := mast_submerged > -0.05
+	if under:
+		_sheet = 1.0
+		_drain = 0.0
+		_drops = maxf(_drops, lerpf(0.04, 0.8, sea))
 	else:
-		_wash = maxf(_wash - delta * 0.45, 0.0)
+		_drain = minf(_drain + delta * lerpf(2.6, 0.8, sea), 1.2)
+		if _drain >= 1.15:
+			_sheet = 0.0
+		_drops = maxf(_drops - delta * lerpf(0.5, 0.18, sea), 0.0)
+		# Rough sea: spray over a low mast head now and then.
+		if sea > 0.45 and mast_submerged > -1.2 and randf() < delta * 0.12 * sea * sea:
+			_drops = minf(_drops + 0.35 * sea, 1.0)
+			if randf() < 0.5:
+				_sheet = 0.45 * sea
+				_drain = 0.25
 	if _was_submerged and mast_submerged < -0.2:
 		_say("MAST CLEAR OF THE SURFACE")
 	_was_submerged = mast_submerged > 0.0
-	_post_mat.set_shader_parameter("wash", _wash)
+	_post_mat.set_shader_parameter("sheet", _sheet if not under else 0.0)
+	_post_mat.set_shader_parameter("drain", _drain)
+	_post_mat.set_shader_parameter("drops", _drops if not under else 0.0)
 	_post_mat.set_shader_parameter("submerged", sub_d)
 	_post_mat.set_shader_parameter("time", _time)
 	_post_mat.set_shader_parameter("flash", _flash)

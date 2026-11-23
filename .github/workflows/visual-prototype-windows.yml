@@ -1,12 +1,11 @@
 # Builds the portable Windows x64 package of Wolf of the Deep
-# EXPERIMENT branch (Mission 004C): control room visual quality pilot.
+# Mission 005 "The Living Arctic" (branch claude/mission-005-living-arctic).
+# Run on request (workflow_dispatch) at the agreed checkpoints.
 # Approved by the user for these playtest builds; produces a downloadable
 # workflow artifact only (no release publishing, no installer).
-name: Wolf of the Deep · EXPERIMENT (control room pilot) · Windows x64 build
+name: Wolf of the Deep · Mission 005 · Windows x64 build
 
 on:
-  push:
-    branches: ["claude/control-room-pilot"]
   workflow_dispatch:
 
 env:
@@ -55,8 +54,11 @@ jobs:
           timeout 120 ~/godot/godot --headless --path . -s tests/check_audio.gd 2>&1 | tee -a checks.log
           timeout 180 ~/godot/godot --headless --path . -s tests/check_pause.gd 2>&1 | tee -a checks.log
           timeout 300 ~/godot/godot --headless --path . --fixed-fps 30 -s tests/check_control_room.gd 2>&1 | tee -a checks.log
+          timeout 300 ~/godot/godot --headless --path . -s tests/check_save.gd 2>&1 | tee -a checks.log
+          timeout 300 ~/godot/godot --headless --path . --fixed-fps 30 -s tests/check_ui.gd 2>&1 | tee -a checks.log
           grep -q "POKER CHECK: PASS" checks.log && grep -q "AUDIO CHECK: PASS" checks.log
           grep -q "PAUSE CHECK: PASS" checks.log && grep -q "CONTROL ROOM CHECK: PASS" checks.log
+          grep -q "SAVE CHECK: PASS" checks.log && grep -q "UI CHECK: PASS" checks.log
 
       - name: Export Windows x64 (portable, single executable)
         run: |
@@ -75,7 +77,7 @@ jobs:
       - name: Upload portable build
         uses: actions/upload-artifact@v4
         with:
-          name: WolfOfTheDeep-EXPERIMENT-ControlRoomPilot-windows-x64
+          name: WolfOfTheDeep-Mission005-LivingArctic-windows-x64
           path: build/WolfOfTheDeep
           if-no-files-found: error
           retention-days: 30

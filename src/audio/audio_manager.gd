@@ -326,3 +326,15 @@ func update_mix(loc: Loc, sub: Submarine, weather: Weather, near_land: float, dt
 		_song_player.volume_db = linear_to_db(maxf(env, 0.0001)) - 8.0 + duck_db * 1.3
 		if _song_t >= _song_end:
 			_song_player.stop()
+
+
+## Player volume settings (dB offsets) on top of each bus's mixing level.
+func apply_settings() -> void:
+	var base := {BUS_WORLD: 0.0, BUS_AMBIENCE: 0.0, BUS_NEAR: 0.0, BUS_MUFFLED: -7.0, BUS_FAR: -13.0, BUS_VOICE: 0.0, BUS_MUSIC: -2.0}
+	var key := {BUS_WORLD: "vol_effects", BUS_NEAR: "vol_effects", BUS_MUFFLED: "vol_effects", BUS_FAR: "vol_effects",
+		BUS_AMBIENCE: "vol_ambience", BUS_VOICE: "vol_voices", BUS_MUSIC: "vol_music"}
+	for b in base.keys():
+		var idx := AudioServer.get_bus_index(b)
+		if idx >= 0:
+			AudioServer.set_bus_volume_db(idx, float(base[b]) + float(Settings.get_v(String(key[b]))))
+	AudioServer.set_bus_volume_db(0, float(Settings.get_v("vol_master")))

@@ -141,6 +141,20 @@ func _make_bergs() -> void:
 		growlers.append({"pos": (b["pos"] as Vector3) + off, "r": _rng.randf_range(3.0, 9.0), "keel": _rng.randf_range(4.0, 12.0)})
 
 
+## Add an iceberg at runtime (developer hazard tests).
+func add_berg(pos: Vector3, radius: float, keel: float) -> Dictionary:
+	var b := {"pos": pos, "r": radius, "h": radius * 0.45, "keel": keel, "vel": Vector3.ZERO, "spin": 0.0,
+		"tabular": false, "seed": _rng.randi() % 1000, "rot": 0.0, "id": "ICE-T%02d" % bergs.size()}
+	bergs.append(b)
+	var mi := MeshInstance3D.new()
+	mi.mesh = _berg_mesh(b)
+	mi.material_override = _ice_mat
+	mi.position = Vector3(pos.x, 0.0, pos.z)
+	add_child(mi)
+	_berg_nodes.append(mi)
+	return b
+
+
 ## Horizontal radius of a berg's ice at height y (y < 0 underwater).
 static func berg_radius_at(b: Dictionary, y: float) -> float:
 	if y >= 0.0:
@@ -358,3 +372,23 @@ func _build_floes() -> void:
 	mmi.multimesh = mm
 	mmi.material_override = _float_mat
 	add_child(mmi)
+
+
+func save_state() -> Dictionary:
+	var bs: Array = []
+	for b in bergs:
+		bs.append({"id": b["id"], "pos": SaveSystem.v3(b["pos"]), "rot": b["rot"]})
+	return {"bergs": bs, "rng": _rng.state}
+
+
+func load_state(d: Dictionary) -> void:
+	var by_id := {}
+	for b in bergs:
+		by_id[String(b["id"])] = b
+	for bd in d.get("bergs", []):
+		var b: Dictionary = by_id.get(String(bd.get("id", "")), {})
+		if b.is_empty():
+			continue
+		b["pos"] = SaveSystem.to_v3(bd.get("pos"), b["pos"])
+		b["rot"] = float(bd.get("rot", b["rot"]))
+	advance(0.0)

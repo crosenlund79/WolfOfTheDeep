@@ -26,6 +26,12 @@ var affinity: Dictionary = {}   # other id -> -1..1 (and "captain")
 var history: Array[String] = []
 ## Poker temperament: tightness 0..1, aggression 0..1, bluff 0..1.
 var poker := {"tight": 0.5, "aggro": 0.5, "bluff": 0.2}
+## Independent judgement (see Conscience): loyalty to country, trust in the
+## government and in command, trust in the captain, loyalty to shipmates,
+## willingness to take risks, plus convictions that matter to this person.
+var conscience := {"country": 0.75, "government": 0.6, "command": 0.65, "captain": 0.6, "shipmates": 0.75, "risk": 0.5, "convictions": []}
+## Concerns this person has formed (and may raise): [{t, topic, text, raised}]
+var opinions: Array = []
 
 
 func skill(r: String) -> float:
@@ -58,7 +64,8 @@ func remember(entry: String) -> void:
 
 
 func to_dict() -> Dictionary:
-	return {"candy": candy, "affinity": affinity, "history": history, "fatigue": fatigue}
+	return {"candy": candy, "affinity": affinity, "history": history, "fatigue": fatigue, "available": available,
+		"conscience": conscience.duplicate(true), "opinions": opinions.duplicate(true)}
 
 
 func from_dict(d: Dictionary) -> void:
@@ -70,3 +77,10 @@ func from_dict(d: Dictionary) -> void:
 		history.clear()
 		for h in d["history"]:
 			history.append(String(h))
+	fatigue = float(d.get("fatigue", fatigue))
+	available = bool(d.get("available", available))
+	if d.get("conscience") is Dictionary:
+		for k in (d["conscience"] as Dictionary).keys():
+			conscience[k] = d["conscience"][k]
+	if d.get("opinions") is Array:
+		opinions = d["opinions"]

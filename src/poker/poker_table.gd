@@ -264,7 +264,6 @@ func _settle() -> String:
 			pool[k2] = int(pool[k2]) - 1
 			candy2[k2] = int(candy2.get(k2, 0)) + 1
 			need -= 1
-	crew.save_state()
 	if lines.is_empty():
 		return "Everyone leaves the table with what they brought."
 	return "Sweets changed hands: " + ", ".join(lines) + "."

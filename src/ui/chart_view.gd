@@ -17,6 +17,12 @@ var sector_center := Vector3.ZERO
 var sector_radius := 0.0
 var rv_point := Vector3.ZERO
 var dr_error := 20.0
+var planned_knots := 9.0
+
+
+func focus_on(p: Vector3) -> void:
+	_follow = false
+	_center = Vector2(p.x, p.z)
 
 var _tex: ImageTexture
 var _center := Vector2.ZERO

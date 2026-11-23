@@ -307,3 +307,34 @@ func morning_report() -> String:
 		return "A quiet watch. Nothing to report."
 	var lines := report.slice(maxi(report.size() - 8, 1))
 	return "\n".join(lines)
+
+
+func save_state() -> Dictionary:
+	var lo: Array = []
+	for p in _loiter:
+		lo.append(SaveSystem.v3(p))
+	return {"active": active, "orders": orders, "cruise_depth_mode": cruise_depth_mode, "cruise_speed": cruise_speed,
+		"report": report, "evading": _evading, "traffic_until": _traffic_until, "last_broadcast": _last_broadcast,
+		"charging": _charging, "woken": _woken, "loiter": lo, "loiter_i": _loiter_i}
+
+
+func load_state(d: Dictionary) -> void:
+	active = bool(d.get("active", false))
+	var o: Variant = d.get("orders")
+	if o is Dictionary:
+		for k in (o as Dictionary).keys():
+			orders[k] = o[k]
+	cruise_depth_mode = int(d.get("cruise_depth_mode", cruise_depth_mode))
+	cruise_speed = int(d.get("cruise_speed", cruise_speed))
+	report.clear()
+	for r in d.get("report", []):
+		report.append(String(r))
+	_evading = float(d.get("evading", 0.0))
+	_traffic_until = float(d.get("traffic_until", -1.0))
+	_last_broadcast = String(d.get("last_broadcast", ""))
+	_charging = bool(d.get("charging", false))
+	_woken = d.get("woken", {})
+	_loiter.clear()
+	for p in d.get("loiter", []):
+		_loiter.append(SaveSystem.to_v3(p))
+	_loiter_i = int(d.get("loiter_i", 0))

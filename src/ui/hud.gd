@@ -20,7 +20,8 @@ var _status: Label
 var _weather_label: Label
 var _keys: Label
 var _help: PanelContainer
-var _pause: PanelContainer
+var _pause: Control
+var pause_menu: GameMenu
 var _title_t := -1.0
 var _bars := 0.0
 var _hint_t := 14.0
@@ -182,24 +183,18 @@ DISPLAY    U hide interface  F9 performance mode  F11 fullscreen
 
 
 func _build_pause() -> void:
-	_pause = PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.0, 0.0, 0.0, 0.7)
-	sb.set_content_margin_all(40)
-	_pause.add_theme_stylebox_override("panel", sb)
-	_pause.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var v := VBoxContainer.new()
-	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	_pause.add_child(v)
-	var t := UiStyle.label("PAUSED", 40, UiStyle.WHITE, UiStyle.title())
-	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(t)
-	var b := UiStyle.label("Esc  resume        Q  quit to desktop", 16, UiStyle.DIM)
-	b.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(b)
+	# The in-game menu (resume, save, load, settings, main menu, quit).
+	pause_menu = GameMenu.new()
+	pause_menu.mode = "pause"
+	_pause = pause_menu
 	_pause.visible = false
 	_pause.process_mode = Node.PROCESS_MODE_ALWAYS
-	add_child(_pause)
+	# Its own layer, so it always sits above the log, contacts and panels.
+	var top := CanvasLayer.new()
+	top.layer = 20
+	top.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(top)
+	top.add_child(_pause)
 	# The HUD pauses with the game, so a small listener that keeps running
 	# while paused handles Esc (resume) and Q (quit) on the pause screen.
 	var keys := PauseKeys.new()
@@ -266,6 +261,10 @@ func toggle_help() -> void:
 
 func toggle_pause() -> void:
 	_pause.visible = not _pause.visible
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if _pause.visible:
+		pause_menu.has_campaign = main != null and bool(main.started)
+		pause_menu.open("pause")
 	get_tree().paused = _pause.visible
 
 
@@ -282,10 +281,9 @@ class PauseKeys extends Node:
 		if k == null or not k.pressed or k.echo or not hud.is_paused():
 			return
 		if k.keycode == KEY_ESCAPE:
-			hud.toggle_pause()
+			if not hud.pause_menu.handle_back():
+				hud.toggle_pause()
 			get_viewport().set_input_as_handled()
-		elif k.keycode == KEY_Q:
-			get_tree().quit()
 
 
 func _hint_line(v: int) -> String:
@@ -315,7 +313,8 @@ func _process(delta: float) -> void:
 		if _title_t > 14.0:
 			_title_t = -1.0
 			_title_root.modulate.a = 0.0
-	var cinematic: bool = main != null and main.view == 9
+	var menu_up: bool = main != null and bool(main.in_main_menu)
+	var cinematic: bool = main != null and main.view == 9 and not menu_up
 	_bars = move_toward(_bars, 1.0 if cinematic else 0.0, delta * 1.2)
 	var bar_h := vp.y * 0.11 * smoothstep(0.0, 1.0, _bars)
 	_bar_top.position = Vector2.ZERO
@@ -336,11 +335,12 @@ func _process(delta: float) -> void:
 		_keys.text = _hint_line(int(main.view))
 	var title_busy := _title_t >= 0.0 and _title_t < 12.0
 	var own_ui: bool = main != null and (main.view == 1 or main.view == 3 or main.view == 4)
-	for c in [_view_label, _status, _keys, _weather_label]:
-		(c as Control).visible = not title_busy
-	_view_label.visible = not title_busy and not own_ui
+	_status.visible = false
+	_keys.visible = false
+	for c in [_view_label, _weather_label]:
+		(c as Control).visible = not title_busy and not menu_up
+	_view_label.visible = not title_busy and not own_ui and not menu_up
 	_ident.visible = _view_label.visible
-	_status.visible = not title_busy and not own_ui
 	if main != null and main.view == 3:
 		_keys.visible = false
 		_weather_label.visible = false

@@ -154,3 +154,29 @@ func evaluate(how: String) -> Dictionary:
 		if o["done"]:
 			grade += 1
 	return {"how": how, "objectives": lines, "grade": grade, "flags": flags, "log": entries, "time": clock.time_string(), "hull": sub.hull}
+
+
+func save_state() -> Dictionary:
+	return {"objectives": objectives, "entries": entries, "pending": pending, "received": received, "flags": flags,
+		"counter_detected": counter_detected, "done": done, "classified": classified_ids, "broadcast_hour": _broadcast_hour}
+
+
+func load_state(d: Dictionary) -> void:
+	objectives.clear()
+	for o in d.get("objectives", []):
+		objectives.append(o)
+	entries.clear()
+	for e in d.get("entries", []):
+		entries.append(e)
+	pending.clear()
+	for m in d.get("pending", []):
+		pending.append(m)
+	received.clear()
+	for m in d.get("received", []):
+		received.append(m)
+	flags = d.get("flags", {})
+	counter_detected = bool(d.get("counter_detected", false))
+	done = bool(d.get("done", false))
+	classified_ids = d.get("classified", {})
+	_broadcast_hour = int(d.get("broadcast_hour", -1))
+	objectives_changed.emit()

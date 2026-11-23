@@ -60,6 +60,18 @@ var menu: MenuPanel
 var poker: PokerTable
 ## Mission 004C pilot: the control room as path-traced plates with live layers.
 var pilot: ControlRoomPilot
+var captain_log := CaptainsLog.new()
+var command_bar: CommandBar
+var contact_list: ContactList
+var log_view: LogView
+var game_menu: GameMenu
+var dev_panel: DevPanel
+var unlimited_weapons := false
+var in_main_menu := false
+var _autosave_t := 0.0
+var _playtime := 0.0
+var _test_vessels: Array[SurfaceShip] = []
+var _load_error := ""
 
 var view := View.CINEMATIC
 var started := false
@@ -178,6 +190,8 @@ func _ready() -> void:
 	patrol.weather = weather
 	patrol.vessels = vessels
 	add_child(patrol)
+	captain_log.clock = clock
+	patrol.logged.connect(_on_patrol_logged)
 	patrol.setup()
 
 	story.patrol = patrol
@@ -257,13 +271,32 @@ func _ready() -> void:
 	room.setup_screens(rig, ocean, ships)
 	room.wire_sonar(sensors, crew)
 
+	Settings.ensure_loaded()
+	_apply_settings()
 	_parse_args()
 	if _capture.is_empty() and _sim_hours <= 0.0:
-		set_view(View.CINEMATIC)
-		rig.set_shot(0)
-		hud.play_title()
-		audio.play_music("mus_main_theme", -6.0)
-		get_tree().create_timer(14.0).timeout.connect(_begin_patrol)
+		var pend := SaveSystem.pending
+		SaveSystem.pending = {}
+		match String(pend.get("action", "")):
+			"new":
+				_begin_patrol()
+			"load":
+				if not _load_game(String(pend.get("path", ""))):
+					_show_main_menu()
+			_:
+				_show_main_menu()
+
+
+func _show_main_menu() -> void:
+	in_main_menu = true
+	set_view(View.CINEMATIC)
+	rig.set_shot(0)
+	audio.play_music("mus_main_theme", -6.0)
+	command_bar.visible = false
+	game_menu.open("main")
+	if _load_error != "":
+		hud.toast(_load_error)
+		_load_error = ""
 
 
 func _build_ui() -> void:
@@ -336,6 +369,42 @@ func _build_ui() -> void:
 	menu = MenuPanel.new()
 	UiStyle.place(menu, Vector2(0.5, 0.5), Vector2(-330, -320), Vector2(660, 0))
 	ui.add_child(menu)
+	command_bar = CommandBar.new()
+	command_bar.main = self
+	command_bar.request.connect(_on_bar_request)
+	ui.add_child(command_bar)
+	contact_list = ContactList.new()
+	contact_list.main = self
+	contact_list.sensors = sensors
+	contact_list.sub = sub
+	contact_list.clock = clock
+	contact_list.show_on_chart.connect(func(p: Vector3) -> void:
+		set_view(View.CHART)
+		chart.focus_on(p))
+	contact_list.log_for.connect(func(id: String) -> void: log_view.open("log", id))
+	ui.add_child(contact_list)
+	log_view = LogView.new()
+	log_view.main = self
+	log_view.clog = captain_log
+	log_view.patrol = patrol
+	log_view.show_on_chart.connect(func(p: Vector3) -> void:
+		log_view.visible = false
+		set_view(View.CHART)
+		chart.focus_on(p))
+	log_view.show_contact.connect(func(id: String) -> void:
+		log_view.visible = false
+		contact_list.selected = id
+		contact_list.visible = true
+		contact_list.refresh())
+	ui.add_child(log_view)
+	dev_panel = DevPanel.new()
+	dev_panel.main = self
+	ui.add_child(dev_panel)
+	game_menu = GameMenu.new()
+	game_menu.action.connect(on_menu_action)
+	game_menu.visible = false
+	ui.add_child(game_menu)
+	hud.pause_menu.action.connect(on_menu_action)
 
 
 func _connect_signals() -> void:
@@ -361,6 +430,7 @@ func _connect_signals() -> void:
 	patrol.finished.connect(_on_patrol_finished)
 	watch.wake_captain.connect(_wake)
 	watch.acted.connect(func(t: String) -> void:
+		clog("DECISIONS", "XO: " + t, "confirmed", {"source": "XO (watch)"})
 		if not asleep:
 			hud.toast("XO:  " + t))
 	encounter.message.connect(func(t: String) -> void: hud.event(t))
@@ -384,6 +454,9 @@ func _begin_patrol() -> void:
 	if started:
 		return
 	started = true
+	in_main_menu = false
+	game_menu.visible = false
+	command_bar.visible = true
 	audio.stop_music()
 	set_view(View.CONTROL)
 	sub.set_speed_step(3)
@@ -403,6 +476,10 @@ func _begin_patrol() -> void:
 func _process(delta: float) -> void:
 	var real_dt := minf(delta, 0.1)
 	_real += real_dt
+	if started:
+		_playtime += real_dt
+	command_bar.visible = started and not in_main_menu and not asleep and not poker.visible and view != View.CINEMATIC
+	captain_log.watch_active = watch.active
 	_tick_rest(real_dt)
 	var scale := 1.0
 	if started or _sim_hours > 0.0:
@@ -471,6 +548,12 @@ func _sim_step(h: float) -> void:
 
 func _slow_tick(dt: float) -> void:
 	patrol.advance(dt)
+	if started and not in_main_menu:
+		_autosave_t += dt
+		var mins := int(Settings.get_v("autosave_minutes"))
+		if mins > 0 and _autosave_t >= mins * 60.0:
+			_autosave_t = 0.0
+			_autosave("")
 	var vis := weather.visibility_m()
 	var dark := weather.darkness()
 	for v in vessels:
@@ -489,6 +572,7 @@ func _slow_tick(dt: float) -> void:
 	if weather.condition != _last_condition:
 		if _last_condition != "" and started:
 			hud.toast("WEATHER:  " + weather.condition_label())
+			clog("WORLD", "Weather: " + weather.condition_label().to_lower() + ".")
 		_last_condition = weather.condition
 	if float(weather.current.get("aurora", 0.0)) > 0.35 and weather.darkness() > 0.7 and _aurora_night != clock.day() and not asleep and started:
 		_aurora_night = clock.day()
@@ -638,6 +722,8 @@ func _on_contact_new(c: Contact) -> void:
 		return
 	var v := c.vessel as SurfaceShip
 	var rel := fposmod(c.bearing - rad_to_deg(sub.heading), 360.0)
+	var how := "passive sonar" if c.sources.has("sonar") else ("visual" if c.sources.has("visual") else "AIS")
+	clog("CONTACTS", "New contact %s, bearing %s (%s)%s." % [c.id, _brg(c), how, (", range about %.1f nm" % (c.range_est / 1852.0)) if c.range_err < 0.3 else ""], "confirmed", {"contact": c.id, "pos": c.est_pos if c.range_err < 0.3 else sub.global_position})
 	if asleep:
 		if watch.orders["wake_on_contact"]:
 			_wake("New contact %s, bearing %s." % [c.id, _brg(c)])
@@ -660,16 +746,26 @@ func _on_contact_classified(c: Contact) -> void:
 		return
 	var cls := {"MERCHANT": "a merchant", "FISHING": "a fishing vessel", "RESEARCH": "a research vessel", "WARSHIP": "a warship"}
 	crew.react("contact_classified", {"id": c.id, "cls": cls[c.classification], "why": WHY[c.classification]})
+	clog("CONTACTS", "%s classified as %s: %s" % [c.id, cls[c.classification], String(WHY[c.classification])], "assessment", {"contact": c.id, "pos": c.est_pos})
 
 
 func _on_contact_identified(c: Contact) -> void:
-	if asleep or not started:
+	if not started:
+		return
+	clog("CONTACTS", "%s identified: %s%s." % [c.id, c.identified_name, " (AIS)" if c.sources.has("ais") and not c.sources.has("visual") else ""], "confirmed", {"contact": c.id, "pos": c.est_pos})
+	if asleep:
 		return
 	crew.react("contact_identified", {"id": c.id, "name": c.identified_name})
 
 
 func _on_contact_lost(c: Contact) -> void:
-	if c.kind != "VESSEL" or asleep or not started:
+	if c.kind != "VESSEL" or not started:
+		return
+	if c.identified_name != "":
+		clog("CONTACTS", "Lost contact %s (%s), last bearing %s." % [c.id, c.identified_name, _brg(c)], "confirmed", {"contact": c.id})
+	else:
+		clog("CONTACTS", "Lost contact %s, last bearing %s, never identified (%s)." % [c.id, _brg(c), c.label().to_lower()], "unresolved", {"contact": c.id})
+	if asleep:
 		return
 	if c.classification in ["WARSHIP", "SUBMARINE", "UNKNOWN", "SUBMERGED"] and _cd("vo_lost", 900.0):
 		dialogue.say("miller", VOICE_TEXT["vo_miller_contact_lost"], Dialogue.P.REPORT, "vo_miller_contact_lost")
@@ -683,6 +779,7 @@ func _on_ice_warning(c: Contact, dist: float, rel_bearing: float) -> void:
 		return
 	if not _cd("ice", 90.0):
 		return
+	clog("NAVIGATION", "Ice ahead: %s, range about %d m, keel estimated %d m." % ["to starboard" if rel_bearing < 0.0 else "to port", int(round(dist / 10.0) * 10.0), int(round(float(c.berg.get("keel", 0.0)) / 10.0) * 10)], "assessment", {"contact": c.id, "pos": c.est_pos})
 	crew.react("ice_warning", {"rel": "%03d" % int(fposmod(rel_bearing, 360.0)), "range": int(round(dist / 10.0) * 10.0), "side": "to starboard" if rel_bearing < 0.0 else "to port"}, Dialogue.P.CRITICAL if dist < 400.0 else Dialogue.P.REPORT)
 	_drop_time()
 
@@ -699,6 +796,7 @@ func _on_damaged(amount: float, kind: String) -> void:
 	_alarm_t = 90.0
 	crew.react("collision_ice" if kind == "ice" else "grounding", {}, Dialogue.P.CRITICAL)
 	var detail := "Minor. A few frames, some weeping seams." if amount < 8.0 else ("We're taking water forward." if amount < 20.0 else "Serious flooding forward. I need speed off her and an up angle.")
+	clog("ENGINEERING", "Damage report after %s: %s" % ["ice contact" if kind == "ice" else "grounding", detail], "assessment")
 	get_tree().create_timer(5.0).timeout.connect(func() -> void: crew.react("damage_report", {"detail": detail}, Dialogue.P.CRITICAL))
 	patrol.log_entry("Collision (%s). Hull integrity %d%%." % [kind, int(sub.hull)])
 	_wake("Collision! The boat is damaged.")
@@ -734,6 +832,7 @@ func _on_suspicion(ship: SurfaceShip, level: float) -> void:
 		var c := sensors.contact_for(ship)
 		if c and c.status == "TRACKING":
 			crew.react("detected_risk", {"id": c.id}, Dialogue.P.CRITICAL)
+		clog("CONTACTS", "A warship%s is behaving as if searching; we may have been detected." % ((" (" + c.id + ")") if c else ""), "unresolved", {"contact": c.id if c else ""})
 		if ship.global_position.distance_to(sub.global_position) < 14000.0:
 			_wake("A warship is searching near us.")
 			_drop_time()
@@ -743,6 +842,8 @@ func _on_suspicion(ship: SurfaceShip, level: float) -> void:
 
 func _on_message(msg: Dictionary) -> void:
 	var from := String(msg["from"])
+	msg["received_time"] = clock.time_string()
+	clog("COMMUNICATIONS", "Signal from %s: %s" % [from, String(msg["text"])], "confirmed", {"message": String(msg.get("id", ""))})
 	hud.event("MESSAGE  ·  %s  ·  L TO READ" % from)
 	if asleep:
 		var urgent := String(msg["text"]).begins_with("PRIORITY") or String(msg["text"]).begins_with("MAYDAY")
@@ -1119,20 +1220,26 @@ func _make_marine_snow() -> GPUParticles3D:
 # --- input ---------------------------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
+	if in_main_menu:
+		return
 	var key_event := event as InputEventKey
 	if key_event and key_event.pressed and not key_event.echo:
 		var k := key_event.keycode
-		if poker.visible and poker.handle_key(k):
+		if poker.visible:
+			# The card table owns the keyboard while it is open.
+			poker.handle_key(k)
+			get_viewport().set_input_as_handled()
 			return
 		if menu.visible and menu.handle_key(k):
+			return
+		if k == KEY_ESCAPE and _close_overlay():
+			get_viewport().set_input_as_handled()
 			return
 	if asleep:
 		if key_event and key_event.pressed and not key_event.echo and key_event.keycode in [KEY_SPACE, KEY_ESCAPE, KEY_ENTER]:
 			_wake("You wake on your own.", true)
 		return
 	if not started:
-		if (key_event and key_event.pressed) or (event is InputEventMouseButton and event.pressed):
-			_begin_patrol()
 		return
 	if view == View.PERISCOPE and periscope_ui.handle_input(event):
 		return
@@ -1219,7 +1326,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_TAB:
 			_open_orders()
 		KEY_L:
-			_open_log()
+			if log_view.visible:
+				log_view.visible = false
+			else:
+				_open_log()
+		KEY_K:
+			contact_list.toggle()
+		KEY_F5:
+			save_game("quick")
+		KEY_F10:
+			if bool(Settings.get_v("developer")):
+				dev_panel.toggle()
 		KEY_EQUAL, KEY_PLUS, KEY_KP_ADD, KEY_BRACKETRIGHT:
 			_set_time_level(clock.level + 1)
 		KEY_MINUS, KEY_KP_SUBTRACT, KEY_BRACKETLEFT:
@@ -1329,7 +1446,7 @@ func _fire() -> void:
 		hud.toast("PERISCOPE NOT CLEAR OF THE WATER  ·  RAISE IT (M) AT PERISCOPE DEPTH (P)")
 		return
 	if not encounter.can_fire():
-		hud.toast("TUBES RELOADING")
+		hud.toast("NO TORPEDOES REMAINING" if sub.torpedoes <= 0 else "TUBES RELOADING")
 		return
 	if _fire_confirm <= 0.0:
 		_fire_confirm = 7.0
@@ -1393,6 +1510,7 @@ func _order(id: String) -> void:
 		"silent":
 			crew.silent_running = not crew.silent_running
 			sub.silent_running = crew.silent_running
+			clog("DECISIONS", "Rigged for silent running." if crew.silent_running else "Secured from silent running.")
 			crew.react("silent_on" if crew.silent_running else "silent_off")
 			if crew.silent_running and sub.speed_step > 2:
 				sub.set_speed_step(2)
@@ -1402,6 +1520,7 @@ func _order(id: String) -> void:
 				crew.react("snorkel_off")
 		"battle":
 			_battle = not _battle
+			clog("DECISIONS", "Battle stations ordered." if _battle else "Stood down from battle stations.")
 			if _battle:
 				audio.play("sfx_alarm", -8.0)
 				dialogue.say("miller", "Battle stations! Battle stations!", Dialogue.P.CRITICAL)
@@ -1413,6 +1532,7 @@ func _order(id: String) -> void:
 			if patrol.can_copy_traffic():
 				_dr_error = 15.0
 				crew.react("fix_taken", {"err": 0})
+				clog("NAVIGATION", "Position fix taken: %s." % ChartView.latlon(sub.global_position))
 			else:
 				dialogue.say("maya", "I need a mast above the water for a fix, Captain. Periscope depth, masts up.", Dialogue.P.REPORT)
 		"route_sector":
@@ -1493,22 +1613,8 @@ func _route_length() -> float:
 	return total
 
 
-func _open_log() -> void:
-	var body := "[b]OBJECTIVES[/b]\n"
-	for o in patrol.objectives:
-		var mark := "[color=#7ef0a8]DONE[/color]" if o["done"] else ("[color=#ff6a5a]FAILED[/color]" if o["failed"] else "[color=#9fb3c0]OPEN[/color]")
-		body += "%s   %s\n" % [mark, o["text"]]
-	body += "\n[b]MESSAGES[/b]\n"
-	if patrol.received.is_empty():
-		body += "None copied yet. Broadcasts are copied at periscope depth with the masts up.\n"
-	for m in patrol.received:
-		body += "[color=#ffd29a]%s[/color]\n%s\n\n" % [m["from"], m["text"]]
-	if not watch.report.is_empty():
-		body += "\n[b]WATCH REPORT (MILLER)[/b]\n" + "\n".join(watch.report.slice(maxi(watch.report.size() - 10, 0))) + "\n"
-	body += "\n[b]PATROL LOG[/b]\n"
-	for e in patrol.entries.slice(maxi(patrol.entries.size() - 16, 0)):
-		body += "[color=#9fb3c0]%s[/color]  %s\n" % [e["t"], e["text"]]
-	menu.open("log", "PATROL LOG  ·  %s" % clock.time_string(), body, [["close", "Close"]], 760.0)
+func _open_log(tab: String = "log") -> void:
+	log_view.open(tab)
 
 
 func _open_rest() -> void:
@@ -1555,6 +1661,7 @@ func _rest_choice(id: String) -> void:
 
 
 func _start_rest(hours: float) -> void:
+	clog("CREW", "Captain turned in for about %d hours. The XO has the conn." % int(round(hours)))
 	set_view(View.CABIN)
 	_sleep_until = clock.seconds + hours * 3600.0
 	_rest_pending = 2.5
@@ -1591,6 +1698,7 @@ func _wake(reason: String, planned: bool = false) -> void:
 	asleep = false
 	crew.captain_asleep = false
 	hud.set_sleep(false)
+	clog("CREW", "Captain back on watch%s." % ("" if planned else (": " + reason)), "confirmed", {"source": ""})
 	clock.set_level(0)
 	set_view(View.CABIN)
 	if planned:
@@ -1599,7 +1707,8 @@ func _wake(reason: String, planned: bool = false) -> void:
 			dialogue.say("miller", VOICE_TEXT["vo_miller_welcome_back"], Dialogue.P.REPORT, "vo_miller_welcome_back")
 		else:
 			dialogue.say("miller", "Captain. You're up. A short report when you're ready; it's in the log.", Dialogue.P.REPORT)
-		_open_log()
+		_open_log("watch")
+		_autosave("rest")
 	else:
 		audio.play("sfx_alarm", -12.0)
 		dialogue.say("miller", "Captain to the control room. %s" % reason, Dialogue.P.CRITICAL)
@@ -1636,6 +1745,391 @@ func _on_poker_finished(summary: String) -> void:
 		hud.event(summary.split("\n")[0])
 		hud.toast(summary.split("\n")[-1])
 	_place_crew()
+
+
+# --- menus, settings, saving -------------------------------------------------------------
+
+func _close_overlay() -> bool:
+	for o in [dev_panel, log_view, contact_list]:
+		if (o as Control).visible:
+			(o as Control).visible = false
+			return true
+	return false
+
+
+func _apply_settings() -> void:
+	audio.apply_settings()
+	_performance = String(Settings.get_v("graphics")) == "performance"
+	_apply_quality()
+	var w := get_window()
+	if not DisplayServer.get_name() == "headless":
+		var want_full := bool(Settings.get_v("fullscreen"))
+		var is_full := w.mode == Window.MODE_FULLSCREEN or w.mode == Window.MODE_EXCLUSIVE_FULLSCREEN
+		if want_full != is_full and _capture.is_empty():
+			w.mode = Window.MODE_FULLSCREEN if want_full else Window.MODE_WINDOWED
+		w.content_scale_factor = float(Settings.get_v("ui_scale"))
+	rig.mouse_sensitivity = float(Settings.get_v("mouse_sensitivity"))
+
+
+func on_menu_action(id: String, arg: Variant) -> void:
+	match id:
+		"new":
+			SaveSystem.pending = {"action": "new"}
+			_reload()
+		"load":
+			SaveSystem.pending = {"action": "load", "path": String(arg)}
+			_reload()
+		"save":
+			if save_game(String(arg)):
+				hud.pause_menu.show_screen("root")
+		"resume":
+			if hud.is_paused():
+				hud.toggle_pause()
+		"main_menu":
+			_autosave("leaving")
+			SaveSystem.pending = {}
+			_reload()
+		"quit":
+			if started and not in_main_menu:
+				_autosave("leaving")
+			get_tree().quit()
+		"settings_changed":
+			_apply_settings()
+		"dev_panel":
+			if hud.is_paused():
+				hud.toggle_pause()
+			dev_panel.visible = true
+
+
+func _reload() -> void:
+	get_tree().paused = false
+	get_tree().reload_current_scene()
+
+
+## Why saving is not possible right now ("" if it is).
+func save_blocker() -> String:
+	if not started or in_main_menu:
+		return "No campaign is running."
+	if encounter.torpedo_running():
+		return "Not while a weapon is running."
+	if sub.is_blowing():
+		return "Not during an emergency blow."
+	if patrol.done and sub.hull <= 0.0:
+		return "The boat is lost."
+	return ""
+
+
+func save_game(slot: String) -> bool:
+	var why := save_blocker()
+	if why != "":
+		hud.toast("CANNOT SAVE  ·  " + why.to_upper())
+		return false
+	var err := SaveSystem.write(slot, gather_state(slot))
+	if err != OK:
+		hud.toast("SAVE FAILED (%s)" % error_string(err))
+		return false
+	if not slot.begins_with("auto_"):
+		hud.toast("GAME SAVED  ·  %s" % GameMenu._slot_name(slot).to_upper())
+	_autosave_t = 0.0
+	return true
+
+
+func _autosave(_why: String) -> void:
+	if int(Settings.get_v("autosave_minutes")) <= 0 and _why == "":
+		return
+	if save_blocker() != "" or crew.alert >= 2:
+		return
+	save_game(SaveSystem.next_auto_slot())
+
+
+func gather_state(slot: String) -> Dictionary:
+	var vs: Array = []
+	for v in vessels:
+		if not (v as SurfaceShip).uid.begins_with("test_"):
+			vs.append((v as SurfaceShip).save_state())
+	var rt: Array = []
+	for w in chart.route:
+		rt.append(SaveSystem.v3(w))
+	return {
+		"meta": {
+			"label": "Patrol One  ·  %s" % ChartView.latlon(sub.global_position).replace("  ", " "),
+			"game_time": clock.time_string(), "saved": Time.get_datetime_string_from_system(false, true),
+			"unix": Time.get_unix_time_from_system(), "slot": slot, "playtime": int(_playtime),
+		},
+		"clock": clock.save_state(),
+		"sub": sub.save_state(),
+		"vessels": vs,
+		"area": area.save_state(),
+		"sensors": sensors.save_state(),
+		"patrol": patrol.save_state(),
+		"story": story.save_state(),
+		"watch": watch.save_state(),
+		"crew": crew.save_state(),
+		"encounter": encounter.save_state(),
+		"weather": {"condition": weather.condition},
+		"log": captain_log.save_state(),
+		"nav": {"route": rt, "dr_error": _dr_error, "planned_knots": chart.planned_knots},
+		"main": {"view": int(view), "battle": _battle, "playtime": _playtime, "unlimited": unlimited_weapons, "invulnerable": sub.invulnerable},
+	}
+
+
+func _load_game(path: String) -> bool:
+	var d := SaveSystem.read_path(path)
+	if d.is_empty() or d.has("error"):
+		_load_error = "COULD NOT LOAD THE SAVE" + ("  ·  " + String(d["error"]).to_upper() if d.has("error") else "")
+		return false
+	apply_state(d)
+	return true
+
+
+func apply_state(d: Dictionary) -> void:
+	clock.load_state(d.get("clock", {}))
+	area.load_state(d.get("area", {}))
+	var by_uid := {}
+	for v in vessels:
+		by_uid[(v as SurfaceShip).uid] = v
+	for vd in d.get("vessels", []):
+		var s: SurfaceShip = by_uid.get(String(vd.get("uid", "")))
+		if s:
+			s.load_state(vd)
+	sub.load_state(d.get("sub", {}))
+	weather.set_condition(String((d.get("weather", {}) as Dictionary).get("condition", weather.condition)))
+	sensors.load_state(d.get("sensors", {}))
+	patrol.load_state(d.get("patrol", {}))
+	story.load_state(d.get("story", {}))
+	watch.load_state(d.get("watch", {}))
+	crew.load_state(d.get("crew", {}))
+	encounter.load_state(d.get("encounter", {}))
+	captain_log.load_state(d.get("log", {}))
+	var nav: Dictionary = d.get("nav", {})
+	chart.route.clear()
+	for w in nav.get("route", []):
+		chart.route.append(SaveSystem.to_v3(w))
+	_dr_error = float(nav.get("dr_error", _dr_error))
+	chart.planned_knots = float(nav.get("planned_knots", chart.planned_knots))
+	var m: Dictionary = d.get("main", {})
+	_battle = bool(m.get("battle", false))
+	_playtime = float(m.get("playtime", 0.0))
+	unlimited_weapons = bool(m.get("unlimited", false))
+	encounter.unlimited = unlimited_weapons
+	sub.invulnerable = bool(m.get("invulnerable", false))
+	crew.miller_has_conn = watch.active
+	started = true
+	in_main_menu = false
+	game_menu.visible = false
+	audio.stop_music()
+	var v := int(m.get("view", View.CONTROL))
+	if v == View.TORPEDO_CAM or v == View.CINEMATIC:
+		v = View.CONTROL
+	set_view(v as View)
+	crew.advance(0.0)
+	_place_crew()
+	hud.toast("CAMPAIGN LOADED  ·  %s" % clock.time_string())
+
+
+# --- command bar ---------------------------------------------------------------------------
+
+func _on_bar_request(id: String) -> void:
+	audio.play("ui_click", -14.0)
+	if id.begins_with("view_"):
+		set_view(int(id.substr(5)) as View)
+		return
+	match id:
+		"orders":
+			_open_orders()
+		"log":
+			if log_view.visible:
+				log_view.visible = false
+			else:
+				_open_log()
+		"contacts":
+			contact_list.toggle()
+		"intel":
+			if has_method("open_intel"):
+				call("open_intel")
+		"menu":
+			hud.toggle_pause()
+		"time_up":
+			_set_time_level(clock.level + 1)
+		"time_down":
+			_set_time_level(clock.level - 1)
+
+
+func time_label() -> String:
+	return str(int(clock.scale()))
+
+
+func under_keel() -> float:
+	return area.seabed_depth(sub.global_position.x, sub.global_position.z) - sub.depth - 4.0
+
+
+func status_flags() -> String:
+	var f: Array[String] = []
+	if watch.active:
+		f.append("MILLER HAS THE CONN")
+	if crew.silent_running:
+		f.append("SILENT RUNNING")
+	if _battle:
+		f.append("BATTLE STATIONS")
+	if sub.diesels_running and not sub.is_surfaced():
+		f.append("SNORKELLING")
+	if sub.depth > Submarine.TEST_DEPTH:
+		f.append("BELOW SAFE DEPTH")
+	if sub.flooding > 0.05:
+		f.append("FLOODING")
+	if _dr_error > 400.0:
+		f.append("FIX NEEDED  ±%d M" % int(_dr_error))
+	if bool(Settings.get_v("developer")) and (sub.invulnerable or unlimited_weapons):
+		f.append("TEST MODE")
+	return "   ·   ".join(f)
+
+
+func hint_text() -> String:
+	match view:
+		View.PERISCOPE:
+			return "DRAG or Q / E  TRAIN   ·   WHEEL  ZOOM   ·   T  SENSOR   ·   ENTER  MARK   ·   M  MASTS   ·   SPACE  FIRE   ·   H  HELP"
+		View.CHART:
+			return chart.hint_text() if chart.has_method("hint_text") else "CLICK  STEER   ·   SHIFT+CLICK  WAYPOINT   ·   WHEEL  ZOOM   ·   RIGHT-DRAG  PAN   ·   C  CENTRE"
+		View.CONTROL:
+			return "Q / E  VIEWPOINT   ·   CLICK A STATION   ·   RIGHT-CLICK  BACK   ·   R  RED LIGHTING   ·   A / D  COURSE   ·   W / S  SPEED   ·   P O Z X  DEPTH"
+		View.SONAR:
+			return "CLICK  SELECT BEARING   ·   K  CONTACT LIST   ·   A / D  COURSE   ·   W / S  SPEED"
+		View.MESS, View.CABIN, View.ENGINE:
+			return "CLICK PEOPLE TO TALK   ·   CLICK THINGS TO USE THEM   ·   1  CONTROL ROOM"
+		View.EXTERIOR:
+			return "DRAG  ORBIT   ·   WHEEL  DISTANCE   ·   CAMERA CAN GO BELOW THE SURFACE   ·   A / D  COURSE   ·   W / S  SPEED   ·   P O Z X  DEPTH"
+	return "A / D  COURSE   ·   W / S  SPEED   ·   P / O / Z / X  DEPTH   ·   M  MASTS   ·   + / -  TIME   ·   F5  QUICK SAVE"
+
+
+func command_status_text() -> String:
+	return "[b]COMMAND[/b]\nThe boat operates under the orders above. What Northern Command knows about the boat depends on what has been reported."
+
+
+# --- captain's log hooks ---------------------------------------------------------------
+
+func _on_patrol_logged(text: String) -> void:
+	if text.begins_with("Message received from"):
+		return
+	var t := text.to_lower()
+	var cat := "WORLD"
+	if t.contains("message") or t.contains("relay") or t.contains("transmit") or t.contains("signal"):
+		cat = "COMMUNICATIONS"
+	elif t.contains("torpedo") or t.contains("hit") or t.contains("fired"):
+		cat = "COMBAT"
+	elif t.contains("collision") or t.contains("hull") or t.contains("flood"):
+		cat = "ENGINEERING"
+	elif t.contains("contact") or t.contains("sonar") or t.contains("detected"):
+		cat = "CONTACTS"
+	elif t.contains("sector") or t.contains("arrived") or t.contains("rv ") or t.contains("course"):
+		cat = "NAVIGATION"
+	elif t.contains("patrol began"):
+		cat = "COMMUNICATIONS"
+	var kind := "assessment" if (t.contains("believe") or t.contains("classified")) else "confirmed"
+	if t.contains("active sonar transmissions heard"):
+		kind = "unresolved"
+	captain_log.add(cat, text, kind, {"pos": sub.global_position})
+
+
+func clog(cat: String, text: String, kind: String = "confirmed", opts: Dictionary = {}) -> void:
+	if not opts.has("pos"):
+		opts["pos"] = sub.global_position
+	captain_log.add(cat, text, kind, opts)
+
+
+# --- developer tools (testing only; enabled in the menu) ---------------------------------
+
+func dev_set_depth(d: float) -> void:
+	if d > 25.0:
+		sub.set_periscope(false)
+	sub.set_target_depth(d)
+	sub.depth = d
+
+
+func dev_set_speed(knots: float) -> void:
+	var best := 0
+	for i in Submarine.SPEED_STEPS.size():
+		if absf(float(Submarine.SPEED_STEPS[i]) - knots) < absf(float(Submarine.SPEED_STEPS[best]) - knots):
+			best = i
+	sub.set_speed_step(best)
+	sub.speed = knots * Submarine.KNOT
+
+
+func dev_teleport(p: Vector3) -> void:
+	sub.position = Vector3(p.x, sub.position.y, p.z)
+	_dr_error = 15.0
+
+
+func dev_set_time(mult: float) -> void:
+	clock.custom_scale = mult
+
+
+func dev_repair() -> void:
+	sub.hull = 100.0
+	sub.leak = 0.0
+	sub.flooding = 0.0
+	sub.stress = 0.0
+	for k in sub.equipment.keys():
+		sub.equipment[k] = 1.0
+	hud.toast("DEV: REPAIRED")
+
+
+func dev_restore_crew() -> void:
+	for m in crew.members.values():
+		(m as CrewMember).fatigue = 0.0
+	hud.toast("DEV: CREW RESTED")
+
+
+func dev_toggle(what: String) -> void:
+	if what == "invulnerable":
+		sub.invulnerable = not sub.invulnerable
+	elif what == "unlimited":
+		unlimited_weapons = not unlimited_weapons
+		encounter.unlimited = unlimited_weapons
+
+
+func dev_fix() -> void:
+	_dr_error = 15.0
+
+
+func dev_spawn(kind: String) -> void:
+	var s := SurfaceShip.new()
+	s.kind = {"merchant": SurfaceShip.Kind.MERCHANT, "warship": SurfaceShip.Kind.FRIGATE, "fishing": SurfaceShip.Kind.TRAWLER}[kind]
+	s.vessel_name = {"merchant": "TEST CARGO", "warship": "", "fishing": "TEST TRAWLER"}[kind]
+	s.ocean = ocean
+	s.uid = "test_%d" % (_test_vessels.size() + 1)
+	s.name = "Test%d" % (_test_vessels.size() + 1)
+	s.recycle = false
+	add_child(s)
+	var dist: float = {"merchant": 6000.0, "warship": 8000.0, "fishing": 4000.0}[kind]
+	var p := sub.global_position + sub.forward() * float(dist)
+	s.place(Vector3(p.x, 0.0, p.z), sub.heading + PI * 0.5, 8.0)
+	s.set_route([p + Vector3(sin(sub.heading + PI * 0.5), 0, -cos(sub.heading + PI * 0.5)) * 30000.0], false, 8.0)
+	vessels.append(s)
+	_test_vessels.append(s)
+	s.pinged.connect(_on_pinged)
+	s.suspicion_changed.connect(_on_suspicion)
+	hud.toast("DEV: TEST %s SPAWNED" % kind.to_upper())
+
+
+func dev_clear_test() -> void:
+	for s in _test_vessels:
+		vessels.erase(s)
+		s.queue_free()
+	_test_vessels.clear()
+
+
+func dev_weather(cond: String) -> void:
+	weather.set_condition(cond)
+
+
+func dev_hazard(what: String) -> void:
+	if what == "berg":
+		var p := sub.global_position + sub.forward() * 1500.0
+		area.add_berg(Vector3(p.x, 0.0, p.z), 60.0, 140.0)
+		hud.toast("DEV: ICEBERG PLACED 1.5 KM AHEAD (KEEL ~140 M)")
+	elif what == "shoal":
+		var ahead := sub.global_position + sub.forward() * 2000.0
+		hud.toast("DEV: DEPTH 2 KM AHEAD %d M" % int(area.seabed_depth(ahead.x, ahead.z)))
 
 
 # --- capture / headless simulation (development aids) ----------------------------------
@@ -1707,6 +2201,10 @@ func _run_simulation() -> void:
 
 
 func _begin_shot() -> void:
+	game_menu.visible = false
+	in_main_menu = false
+	for o in [dev_panel, log_view, contact_list, hud.pause_menu]:
+		(o as Control).visible = false
 	var spec: PackedStringArray = _capture[0]
 	var v := int(spec[0])
 	var tokens: PackedStringArray = spec[2].split("+") if spec.size() > 2 else PackedStringArray()
@@ -1759,6 +2257,18 @@ func _begin_shot() -> void:
 		if tok == "clean":
 			pilot.show_hover = false
 		match tok:
+			"menu":
+				_show_main_menu()
+			"contacts":
+				contact_list.visible = true
+				contact_list.refresh()
+			"logview":
+				_open_log()
+			"pausemenu":
+				hud.pause_menu.has_campaign = true
+				hud.pause_menu.open("pause")
+			"dev":
+				dev_panel.toggle()
 			"poker":
 				clock.seconds = float(int(clock.seconds / 86400.0)) * 86400.0 + 20.0 * 3600.0
 				crew.advance(0.0)

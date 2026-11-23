@@ -43,6 +43,12 @@ var diesels_running := false
 var silent_running := false
 ## Hull state.
 var hull := 100.0
+## Condition of major equipment, 0 (failed) .. 1 (working).
+var equipment := {"propulsion": 1.0, "sonar": 1.0, "masts": 1.0, "radio": 1.0, "hydraulics": 1.0, "ballast": 1.0, "tubes": 1.0}
+## Accumulated structural fatigue from deep excursions (0..1); raises later risk.
+var stress := 0.0
+var torpedoes := 12
+var invulnerable := false        # developer / testing only
 var leak := 0.0
 var flooding := 0.0
 var transient := 0.0
@@ -192,6 +198,27 @@ func set_depth_mode(mode: int) -> void:
 	depth_mode = mode
 	_target_depth = float(DEPTH_MODES[mode]["depth"])
 	depth_mode_changed.emit(String(DEPTH_MODES[mode]["label"]))
+
+
+## Order an exact depth (metres). The depth mode follows for labels and crew.
+func set_target_depth(d: float) -> void:
+	if _blow:
+		return
+	d = maxf(d, 2.05)
+	var best := 0
+	for i in DEPTH_MODES.size():
+		if float(DEPTH_MODES[i]["depth"]) <= d + 0.5:
+			best = i
+	if depth_mode == 0 and d > 3.0:
+		vents_opened.emit()
+	depth_mode = best
+	_target_depth = d
+	_pd_announced = false
+	_approach_announced = false
+
+
+func ordered_depth() -> float:
+	return _target_depth
 
 
 func set_periscope(up: bool) -> void:
@@ -418,6 +445,48 @@ func noise_level() -> float:
 
 func cavitation_speed() -> float:
 	return 7.0 + depth / 12.0
+
+
+func save_state() -> Dictionary:
+	return {
+		"pos": SaveSystem.v3(position), "heading": heading, "ordered_heading": ordered_heading, "helm_auto": helm_auto,
+		"speed": speed, "speed_step": speed_step, "depth": depth, "target_depth": _target_depth, "depth_mode": depth_mode,
+		"masts_up": masts_up, "mast_ext": _mast_ext, "battery": battery, "aip_hours": aip_hours, "snorkel": snorkel_ordered,
+		"silent": silent_running, "hull": hull, "leak": leak, "flooding": flooding, "nav_lights": nav_lights,
+		"equipment": equipment.duplicate(), "stress": stress, "torpedoes": torpedoes,
+	}
+
+
+func load_state(d: Dictionary) -> void:
+	position = SaveSystem.to_v3(d.get("pos"), position)
+	heading = float(d.get("heading", heading))
+	ordered_heading = float(d.get("ordered_heading", heading))
+	helm_auto = bool(d.get("helm_auto", true))
+	speed = float(d.get("speed", speed))
+	speed_step = int(d.get("speed_step", speed_step))
+	depth = float(d.get("depth", depth))
+	depth_mode = int(d.get("depth_mode", depth_mode))
+	_target_depth = float(d.get("target_depth", depth))
+	masts_up = bool(d.get("masts_up", masts_up))
+	_mast_ext = float(d.get("mast_ext", 1.0 if masts_up else 0.0))
+	battery = float(d.get("battery", battery))
+	aip_hours = float(d.get("aip_hours", aip_hours))
+	snorkel_ordered = bool(d.get("snorkel", false))
+	silent_running = bool(d.get("silent", false))
+	hull = float(d.get("hull", hull))
+	leak = float(d.get("leak", 0.0))
+	flooding = float(d.get("flooding", 0.0))
+	nav_lights = float(d.get("nav_lights", nav_lights))
+	stress = float(d.get("stress", 0.0))
+	torpedoes = int(d.get("torpedoes", torpedoes))
+	var eq: Variant = d.get("equipment")
+	if eq is Dictionary:
+		for k in (eq as Dictionary).keys():
+			equipment[k] = float(eq[k])
+	_pd_announced = true
+	_approach_announced = true
+	position.y = -depth
+	basis = Basis(Vector3.UP, -heading)
 
 
 ## Points along the hull for collision tests (world space).

@@ -94,14 +94,20 @@ func advance(dt: float, scope_active: bool) -> void:
 			(_trails[t] as WakeTrail).advance(dt, t.speed, 0.55 if t.depth < 6.0 else 0.0)
 
 
+## Testing only: no reload and no limit on torpedoes.
+var unlimited := false
+
+
 func can_fire() -> bool:
-	return reload <= 0.0
+	if not unlimited and sub.torpedoes <= 0:
+		return false
+	return reload <= 0.0 or unlimited
 
 
 ## Fire along the scope bearing; a solution on a ship adds the lead.
 func fire() -> bool:
 	if not can_fire():
-		message.emit("TUBES RELOADING  ·  %d S" % ceili(reload))
+		message.emit("NO TORPEDOES REMAINING" if sub.torpedoes <= 0 else "TUBES RELOADING  ·  %d S" % ceili(reload))
 		return false
 	var from := sub.tube_transform(tube)
 	var course := rig.bearing
@@ -129,8 +135,10 @@ func fire() -> bool:
 	_trails[torp] = trail
 	_launch_bubbles(from.origin)
 	tube = (tube + 1) % TUBES
-	reload = RELOAD_TIME
+	reload = 0.0 if unlimited else RELOAD_TIME
 	fired += 1
+	if not unlimited:
+		sub.torpedoes = maxi(sub.torpedoes - 1, 0)
 	var aim := "SOLUTION %d%%" % int(solution * 100.0) if locked else "NO SOLUTION  ·  STRAIGHT RUN"
 	message.emit("TORPEDO AWAY  ·  TUBE %d  ·  %s" % [(tube + TUBES - 1) % TUBES + 1, aim])
 	torpedo_fired.emit(torp)
@@ -242,3 +250,16 @@ func _launch_bubbles(pos: Vector3) -> void:
 	p.global_position = pos
 	p.emitting = true
 	get_tree().create_timer(6.0).timeout.connect(p.queue_free)
+
+
+func save_state() -> Dictionary:
+	return {"fired": fired, "hits": hits, "reload": reload, "tube": tube, "solution": solution, "last_contact": last_contact}
+
+
+func load_state(d: Dictionary) -> void:
+	fired = int(d.get("fired", 0))
+	hits = int(d.get("hits", 0))
+	reload = float(d.get("reload", 0.0))
+	tube = int(d.get("tube", 0))
+	solution = float(d.get("solution", 0.0))
+	last_contact = String(d.get("last_contact", ""))

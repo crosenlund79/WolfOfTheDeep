@@ -23,6 +23,7 @@ var _dragging := false
 
 # Periscope
 var bearing := 0.0
+var mouse_sensitivity := 1.0
 var elevation := 0.0
 var zoom_levels := [42.0, 18.0, 8.0, 3.6, 1.6]
 var zoom_index := 1
@@ -66,6 +67,9 @@ var _follow_pos := Vector3.ZERO
 
 
 func set_mode(m: Mode) -> void:
+	if m != Mode.PERISCOPE and _dragging and mode == Mode.PERISCOPE:
+		_dragging = false
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	mode = m
 	if m == Mode.PERISCOPE:
 		# The scope keeps its last bearing between visits.
@@ -138,20 +142,26 @@ func handle_input(event: InputEvent) -> bool:
 				return true
 		if event is InputEventMouseMotion and _dragging:
 			var mm := event as InputEventMouseMotion
-			yaw -= mm.relative.x * 0.005
-			pitch = clampf(pitch + mm.relative.y * 0.004, -0.75, 1.35)
+			yaw -= mm.relative.x * 0.005 * mouse_sensitivity
+			pitch = clampf(pitch + mm.relative.y * 0.004 * mouse_sensitivity, -0.75, 1.35)
 			return true
 	elif mode == Mode.PERISCOPE:
 		if event is InputEventMouseMotion and _dragging:
 			var mm2 := event as InputEventMouseMotion
-			var k := camera.fov / 60.0
-			bearing += mm2.relative.x * 0.0035 * k
+			var k := camera.fov / 60.0 * mouse_sensitivity
+			# The scope trains through 360° and beyond in either direction; the
+			# bearing is kept in 0..2π only to stay numerically tidy.
+			bearing = fposmod(bearing + mm2.relative.x * 0.0035 * k, TAU)
 			elevation = clampf(elevation - mm2.relative.y * 0.0035 * k, -0.25, 0.5)
 			return true
 		if event is InputEventMouseButton:
 			var mb2 := event as InputEventMouseButton
 			if mb2.button_index == MOUSE_BUTTON_LEFT or mb2.button_index == MOUSE_BUTTON_RIGHT:
 				_dragging = mb2.pressed
+				# Capture the pointer while training so the screen edge never
+				# stops the rotation.
+				if DisplayServer.get_name() != "headless":
+					Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if mb2.pressed else Input.MOUSE_MODE_VISIBLE
 				return true
 			if mb2.pressed and mb2.button_index == MOUSE_BUTTON_WHEEL_UP:
 				zoom_index = mini(zoom_index + 1, zoom_levels.size() - 1)
@@ -235,7 +245,7 @@ func _periscope(dt: float) -> void:
 		train -= 1.0
 	if Input.is_key_pressed(KEY_E):
 		train += 1.0
-	bearing += train * dt * deg_to_rad(20.0) * (camera.fov / 42.0)
+	bearing = fposmod(bearing + train * dt * deg_to_rad(20.0) * (camera.fov / 42.0), TAU)
 	var head := sub.mast_head()
 	var target_fov := float(zoom_levels[zoom_index])
 	_fov_s = lerpf(_fov_s, target_fov, 1.0 - exp(-dt * 7.0))
