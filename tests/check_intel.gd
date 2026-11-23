@@ -255,6 +255,18 @@ func _check_damage() -> void:
 	_ok(not stern.apparent().has("flooding") and not stern.apparent().has("hull"), "an observer sees signs, never the damage figures")
 	for s in [big, small, stern]:
 		(s as Node).queue_free()
+	# Classes look and measure differently.
+	var specs := [[SurfaceShip.Kind.PATROL, "corvette", 94.0], [SurfaceShip.Kind.PATROL, "opv", 92.0], [SurfaceShip.Kind.MERCHANT, "bulk", 180.0], [SurfaceShip.Kind.FRIGATE, "", 134.0]]
+	var names: Array = []
+	for sp in specs:
+		var sh := SurfaceShip.new()
+		sh.kind = sp[0]
+		sh.variant = String(sp[1])
+		main.add_child(sh)
+		_ok(is_equal_approx(sh.length, float(sp[2])), "%s builds as its own class (%.0f m, %s)" % [String(sp[1]) if String(sp[1]) != "" else "frigate", sh.length, sh.contact_name])
+		names.append(sh.contact_name)
+		sh.queue_free()
+	_ok(names[0] != names[1], "a corvette and a coast guard cutter are told apart")
 
 
 func _check_bda() -> void:

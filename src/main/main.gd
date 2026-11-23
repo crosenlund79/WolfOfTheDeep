@@ -117,6 +117,10 @@ var intel_view: IntelView
 var _bda: Dictionary = {}               # ship uid -> damage assessment evidence
 var _searching: Dictionary = {}         # ship uid -> true while a commander searches for us
 var _fate_rng := RandomNumberGenerator.new()
+var conscience: Conscience
+var room_panel: RoomPanel
+var standing: CommandStanding
+var _deep_judged := false
 var _focus := Node3D.new()
 var _lens: ColorRect
 var _lens_mat: ShaderMaterial
@@ -308,6 +312,25 @@ func _ready() -> void:
 		_watch_ship(sv)
 	traffic.vessel_materialised.connect(_on_vessel_materialised)
 	traffic.aircraft_event.connect(_on_aircraft_event)
+	# The crew's own judgement, and the boat's standing with Northern Command.
+	conscience = Conscience.new()
+	conscience.name = "Conscience"
+	conscience.crew = crew
+	conscience.clock = clock
+	conscience.dialogue = dialogue
+	add_child(conscience)
+	conscience.setup()
+	conscience.acted.connect(_on_conscience)
+	standing = CommandStanding.new()
+	standing.name = "Standing"
+	standing.patrol = patrol
+	standing.sub = sub
+	standing.clock = clock
+	standing.conscience = conscience
+	standing.intel = intel
+	standing.traffic = traffic
+	add_child(standing)
+	standing.event.connect(_on_standing)
 
 	_build_ui()
 	watch.chart = chart
@@ -349,6 +372,15 @@ func _build_ui() -> void:
 	var ui := CanvasLayer.new()
 	ui.name = "UI"
 	add_child(ui)
+	# Engine room, mess and cabin as a working 2D interface (under every overlay).
+	room_panel = RoomPanel.new()
+	room_panel.main = self
+	room_panel.sub = sub
+	room_panel.crew = crew
+	room_panel.clock = clock
+	room_panel.conscience = conscience
+	room_panel.action.connect(_on_room_panel)
+	ui.add_child(room_panel)
 	_lens = ColorRect.new()
 	_lens.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_lens.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -586,7 +618,7 @@ func _process(delta: float) -> void:
 			hov = engine_room.hovered_text()
 		View.CONTROL:
 			hud.set_view_name(pilot.view_name())
-	hud.set_hover(hov if not menu.visible and not poker.visible else "")
+	hud.set_hover(hov if not menu.visible and not poker.visible and not room_panel.visible else "")
 	if not _capture.is_empty():
 		_capture_step()
 
@@ -638,6 +670,8 @@ func _slow_tick(dt: float) -> void:
 			_passed.erase(s)
 	_navigation(dt)
 	_world_intel()
+	conscience.advance(dt)
+	standing.advance(dt)
 	_plant_reports()
 	_update_alert()
 	if weather.condition != _last_condition:
@@ -1056,6 +1090,8 @@ func _on_ice_warning(c: Contact, dist: float, rel_bearing: float) -> void:
 
 
 func _on_damaged(amount: float, kind: String) -> void:
+	if amount > 5.0 and kind in ["seabed", "land", "ice"] and started:
+		conscience.judge("reckless")
 	if kind == "scrape":
 		if _cd("scrape", 12.0):
 			audio.play("sfx_ice_scrape", -4.0)
@@ -1148,6 +1184,9 @@ func _on_patrol_finished(report: Dictionary) -> void:
 	for n in notes:
 		body += n + "\n\n"
 	body += "Hull integrity %d%%." % int(report["hull"])
+	body += "\n\nStanding with Northern Command: %s." % standing.state.to_lower()
+	for id in conscience.reassignment_requests():
+		body += "\n%s has asked to be reassigned." % crew.members[id].name
 	menu.open("debrief", "PATROL DEBRIEF", body, [["close", "Continue (free patrol)"], ["quit", "Quit to desktop"]], 720.0)
 
 
@@ -1543,6 +1582,28 @@ func _on_room_clicked(kind: String, what: String) -> void:
 			_open_log()
 
 
+func _on_room_panel(id: String, _arg: String) -> void:
+	audio.play("ui_click", -14.0)
+	if id.begins_with("talk:"):
+		_talk(id.substr(5))
+		return
+	match id:
+		"coffee":
+			hud.toast("You pour a coffee. Basse was right: it is terrible.")
+		"poker":
+			_open_cards()
+		"cup":
+			_open_cards(true)
+		"rest":
+			_open_rest()
+		"log":
+			_open_log()
+		"intel":
+			open_intel()
+		"orders":
+			_open_orders()
+
+
 ## The control room pilot asks to leave for another station or screen.
 func _on_pilot_request(action: String) -> void:
 	match action:
@@ -1627,6 +1688,10 @@ func set_view(v: View) -> void:
 	mess.set_active(v == View.MESS)
 	cabin.set_active(v == View.CABIN)
 	engine_room.set_active(v == View.ENGINE)
+	if v == View.MESS or v == View.CABIN or v == View.ENGINE:
+		room_panel.open({View.MESS: "mess", View.CABIN: "cabin", View.ENGINE: "engine"}[v])
+	else:
+		room_panel.visible = false
 	get_viewport().disable_3d = v == View.SONAR or v == View.CHART or v == View.CONTROL or asleep
 	RenderingServer.global_shader_parameter_set("thermal_mode", 0.0)
 	match v:
@@ -1876,6 +1941,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			contact_list.toggle()
 		KEY_I:
 			open_intel()
+		KEY_V:
+			if view == View.EXTERIOR:
+				rig.toggle_surface_side()
 		KEY_N:
 			_fast_to_waypoint()
 		KEY_F5:
@@ -1946,6 +2014,11 @@ func _set_depth(mode: int) -> void:
 	sub.set_depth_mode(mode)
 	if sub.depth_mode == before:
 		return
+	if sub.ordered_depth() > Submarine.SAFE_DEPTH and not _deep_judged:
+		_deep_judged = true
+		conscience.judge("overdepth")
+	elif sub.ordered_depth() <= Submarine.SAFE_DEPTH:
+		_deep_judged = false
 	var want := float(Submarine.DEPTH_MODES[sub.depth_mode]["depth"])
 	if want > Submarine.SAFE_DEPTH:
 		clog("DECISIONS", "Ordered %d m, below the safe operating depth of %d m." % [int(want), int(Submarine.SAFE_DEPTH)])
@@ -2004,10 +2077,13 @@ func _fire() -> void:
 	if not encounter.can_fire():
 		hud.toast("NO TORPEDOES REMAINING" if sub.torpedoes <= 0 else "TUBES RELOADING")
 		return
+	var ctx := _fire_context()
 	if _fire_confirm <= 0.0:
 		_fire_confirm = 7.0
-		dialogue.say("miller", "Captain... we are not at war. If we fire, we start one, and everyone will know who did it. Are you certain, sir?", Dialogue.P.CRITICAL)
+		dialogue.say("miller", conscience.objection(ctx), Dialogue.P.CRITICAL)
 		hud.event("PRESS SPACE AGAIN TO CONFIRM FIRING")
+		if bool(ctx["civil"]):
+			clog("DECISIONS", "The XO formally objected to an order to fire on a civilian ship.", "confirmed", {"source": "XO"})
 		return
 	_fire_confirm = 0.0
 	_captain_order()
@@ -2016,7 +2092,54 @@ func _fire() -> void:
 		patrol.log_entry("Torpedo fired on the captain's order.")
 		patrol.mark_detected("everyone within fifty miles")
 		crew.remember_all("The captain fired a torpedo in peacetime.")
+		clog("DECISIONS", "Torpedo fired on the captain's order%s, without authority to use weapons." % (" at a civilian ship" if bool(ctx["civil"]) else ""), "confirmed")
+		conscience.judge("fire", ctx)
+		standing.weapons_released(bool(ctx["civil"]))
 		_drop_time()
+
+
+## What is in the sights, as the attack party sees it.
+func _fire_context() -> Dictionary:
+	var best: SurfaceShip = encounter.locked
+	if best == null:
+		var best_d := 12.0
+		for v in vessels:
+			var s := v as SurfaceShip
+			if not s.visible or s.state != SurfaceShip.State.SAILING:
+				continue
+			var rel := s.global_position - sub.global_position
+			var off := absf(rad_to_deg(wrapf(atan2(rel.x, -rel.z) - rig.bearing, -PI, PI)))
+			if off < best_d and rel.length() < 15000.0:
+				best_d = off
+				best = s
+	var c := sensors.contact_for(best) if best else null
+	var civil := c != null and (c.classification in ["MERCHANT", "FISHING", "RESEARCH"] or c.sources.has("ais"))
+	var threatened := false
+	if best and best.behavior == "investigate":
+		threatened = true
+	return {"civil": civil, "warship": c != null and c.classification == "WARSHIP", "authorised": false, "threatened": threatened}
+
+
+func _on_conscience(id: String, kind: String, text: String) -> void:
+	clog("CREW", text, "confirmed", {"source": id})
+	if kind == "refused":
+		hud.event("CREW  ·  %s" % text.to_upper().substr(0, 70))
+		if not asleep:
+			dialogue.say("miller", "Captain, %s has stood down from her station. I've put someone else on it." % crew.members[id].short.capitalize() if id in ["freja", "maya"] else "Captain, %s has stood down from his station. I've put someone else on it." % crew.members[id].short.capitalize(), Dialogue.P.REPORT)
+	elif kind == "concern" and not asleep:
+		hud.toast("CREW  ·  " + text.to_upper())
+
+
+func _on_standing(kind: String, text: String) -> void:
+	if kind == "xo":
+		if asleep:
+			clog("DECISIONS", "XO: " + text, "confirmed", {"source": "XO"})
+		else:
+			dialogue.say("miller", text, Dialogue.P.CRITICAL)
+		return
+	clog("DECISIONS", text, "assessment")
+	if started and not asleep:
+		hud.event(text.split(".")[0].to_upper())
 
 
 # --- orders, log, rest, cards ----------------------------------------------------------
@@ -2273,7 +2396,7 @@ func _wake(reason: String, planned: bool = false) -> void:
 	crew.miller_has_conn = false
 
 
-func _open_cards() -> void:
+func _open_cards(cup: bool = false) -> void:
 	if crew.alert > 0:
 		dialogue.say("basse", "Cards? Now? Ha. After, Captain. When nobody is chasing us.", Dialogue.P.REPORT, "", false)
 		return
@@ -2286,7 +2409,7 @@ func _open_cards() -> void:
 	for m in crew.present("mess"):
 		if m.id in ["basse", "erik", "freja", "maya", "miller", "haugen", "dahl"] and m.activity != "on watch" and m.activity != "has the conn":
 			players.append(m)
-	var err := poker.open(players)
+	var err := poker.open(players, cup)
 	if err != "":
 		crew.poker_session = false
 		hud.toast(err)
@@ -2428,6 +2551,8 @@ func gather_state(slot: String) -> Dictionary:
 		"traffic": traffic.save_state(),
 		"reports": reports.save_state(),
 		"bda": _bda.duplicate(true),
+		"conscience": conscience.save_state(),
+		"standing": standing.save_state(),
 		"searching": _searching.duplicate(),
 		"nav": {"route": rt, "dr_error": _dr_error, "planned_knots": chart.planned_knots, "follow": route_follow, "track": chart.track,
 			"ice": chart.reported_ice.map(func(r: Dictionary) -> Dictionary: return {"pos": SaveSystem.v3(r["pos"]), "r": r["r"], "keel": r["keel"], "t": r["t"], "id": r["id"]})},
@@ -2473,6 +2598,8 @@ func apply_state(d: Dictionary) -> void:
 	story.load_state(d.get("story", {}))
 	watch.load_state(d.get("watch", {}))
 	crew.load_state(d.get("crew", {}))
+	conscience.load_state(d.get("conscience", {}))
+	standing.load_state(d.get("standing", {}))
 	encounter.load_state(d.get("encounter", {}))
 	captain_log.load_state(d.get("log", {}))
 	var nav: Dictionary = d.get("nav", {})
@@ -2580,7 +2707,7 @@ func hint_text() -> String:
 		View.MESS, View.CABIN, View.ENGINE:
 			return "CLICK PEOPLE TO TALK   ·   CLICK THINGS TO USE THEM   ·   1  CONTROL ROOM"
 		View.EXTERIOR:
-			return "DRAG  ORBIT   ·   WHEEL  DISTANCE   ·   CAMERA CAN GO BELOW THE SURFACE   ·   A / D  COURSE   ·   W / S  SPEED   ·   P O Z X  DEPTH"
+			return "DRAG  ORBIT   ·   WHEEL  DISTANCE   ·   V  %s THE SURFACE   ·   A / D  COURSE   ·   W / S  SPEED   ·   P O Z X  DEPTH" % ("ABOVE" if rig.below_surface else "BELOW")
 	return "A / D  COURSE   ·   W / S  SPEED   ·   P / O / Z / X  DEPTH   ·   M  MASTS   ·   + / -  TIME   ·   F5  QUICK SAVE"
 
 
@@ -2845,6 +2972,23 @@ func _begin_shot() -> void:
 				for wi in range(0, wv.size() - 1, 2):
 					chart.route.append(Vector3(float(wv[wi]), 0.0, float(wv[wi + 1])))
 				chart.route_changed.emit()
+			"tship":
+				# A regional ship placed near the boat: tship=T07;bearing;distance
+				var tp := kv[1].split(";")
+				var vv := traffic.voyage(tp[0])
+				var tb := sub.heading + deg_to_rad(float(tp[1]) if tp.size() > 1 else 30.0)
+				var td := float(tp[2]) if tp.size() > 2 else 1500.0
+				vv["pos"] = [sub.position.x + sin(tb) * td, sub.position.z - cos(tb) * td]
+				vv["active"] = true
+				traffic.call("_materialise")
+				var tn := traffic.node_for(tp[0])
+				if tn:
+					tn.place(Vector3(float(vv["pos"][0]), 0.0, float(vv["pos"][1])), sub.heading + 1.2, 6.0)
+					tn.set_far(false)
+			"taim":
+				aim_role = "traffic:" + kv[1]
+			"berg":
+				dev_hazard("berg")
 			"itab":
 				intel_view.tab = kv[1]
 				intel_view.selected = ""
@@ -2889,7 +3033,7 @@ func _begin_shot() -> void:
 				_start_rest(4.0)
 				_rest_pending = 0.01
 	if aim_role != "":
-		var s2: SurfaceShip = story.ships[aim_role]
+		var s2: SurfaceShip = traffic.node_for(aim_role.substr(8)) if aim_role.begins_with("traffic:") else story.ships[aim_role]
 		var rel := s2.global_position - sub.global_position
 		rig.bearing = atan2(rel.x, -rel.z)
 		rig.zoom_index = 2

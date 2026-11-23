@@ -57,21 +57,33 @@ func _ready() -> void:
 
 
 ## Sit down with whoever is free in the mess. Returns "" or a reason it can't start.
-func open(players: Array[CrewMember]) -> String:
+## The Mess Cup: everyone stakes a few sweets for equal chips and plays
+## until one player holds them all; the winner takes the stakes and the cup.
+var tournament := false
+const CUP_ENTRY := 5
+const CUP_CHIPS := 60
+const SEATS := 4
+
+
+func open(players: Array[CrewMember], cup: bool = false) -> String:
 	var defs: Array = []
 	_members.clear()
+	tournament = cup
+	var need := CUP_ENTRY if cup else PokerGame.BIG_BLIND
 	var cap := crew.captain_candy
 	var cap_total := _count(cap)
-	if cap_total < PokerGame.BIG_BLIND:
-		return "You have no sweets left to play with."
-	defs.append({"id": "captain", "name": "CAPTAIN", "stack": cap_total, "human": true})
+	if cap_total < need:
+		return "You have no sweets left to play with." if not cup else "You need %d sweets to enter the Mess Cup." % CUP_ENTRY
+	defs.append({"id": "captain", "name": "CAPTAIN", "stack": CUP_CHIPS if cup else cap_total, "human": true})
 	_members[0] = null
 	for m in players:
+		if defs.size() >= SEATS:
+			break
 		var total := _count(m.candy)
-		if total < PokerGame.BIG_BLIND:
+		if total < need:
 			continue
 		_members[defs.size()] = m
-		defs.append({"id": m.id, "name": m.short, "stack": total, "temper": m.poker})
+		defs.append({"id": m.id, "name": m.short, "stack": CUP_CHIPS if cup else total, "temper": m.poker})
 	if defs.size() < 2:
 		return "Nobody in the mess is free for cards right now."
 	game = PokerGame.new()
@@ -226,7 +238,7 @@ func interrupt(reason: String) -> void:
 
 
 func _end(reason: String) -> void:
-	var summary := _settle()
+	var summary := _settle_cup() if tournament else _settle()
 	visible = false
 	phase = "idle"
 	finished.emit((reason + "\n" if reason != "" else "") + summary)
@@ -267,6 +279,34 @@ func _settle() -> String:
 	if lines.is_empty():
 		return "Everyone leaves the table with what they brought."
 	return "Sweets changed hands: " + ", ".join(lines) + "."
+
+
+## The cup goes to whoever holds the chips (the last one standing, or the
+## chip leader if the table breaks up early); the stakes go with it.
+func _settle_cup() -> String:
+	var win := 0
+	for i in game.players.size():
+		if int(game.players[i]["stack"]) > int(game.players[win]["stack"]):
+			win = i
+	var pot := 0
+	for i in game.players.size():
+		if i == win:
+			continue
+		var candy: Dictionary = crew.captain_candy if i == 0 else (_members[i] as CrewMember).candy
+		var owe := CUP_ENTRY
+		for kind in ["toffee", "chocolate", "liquorice"]:
+			var take := mini(owe, int(candy.get(kind, 0)))
+			candy[kind] = int(candy.get(kind, 0)) - take
+			owe -= take
+			pot += take
+	var wc: Dictionary = crew.captain_candy if win == 0 else (_members[win] as CrewMember).candy
+	wc["chocolate"] = int(wc.get("chocolate", 0)) + pot
+	var name_w := String(game.players[win]["name"])
+	crew.mess_cup.append({"t": crew.clock.seconds if crew.clock else 0.0, "winner": name_w})
+	if win > 0:
+		(_members[win] as CrewMember).remember("Won the Mess Cup.")
+	tournament = false
+	return "The Mess Cup goes to %s, with %d sweets in stakes." % ["the Captain" if win == 0 else name_w.capitalize(), pot]
 
 
 static func _count(c: Dictionary) -> int:

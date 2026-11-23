@@ -305,6 +305,23 @@ func _check_collisions() -> void:
 	_ok(String(hit.get("kind", "")) == "ice" and hit.has("berg"), "hull at 40 m under a 90 m keel berg hits ice")
 	var clear := area.hull_collision(_hull_at(bp + Vector3(0.0, 0.0, 40.0), 120.0, 0.0), 3.6)
 	_ok(clear.is_empty() or not clear.has("berg"), "hull at 120 m passes under the 90 m keel")
+	# The berg's mesh follows the same profile the collisions use.
+	var mesh: ArrayMesh = area.call("_berg_mesh", b)
+	var verts: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var good := 0
+	var n := 0
+	for vtx in verts:
+		if absf(vtx.y) < 2.0 or vtx.y > float(b["h"]) * 0.6 or -vtx.y > float(b["keel"]) * 0.85:
+			continue
+		var want := ArcticArea.berg_radius_at(b, vtx.y)
+		if want < 5.0:
+			continue
+		n += 1
+		var ratio := Vector2(vtx.x, vtx.z).length() / want
+		if ratio > 0.6 and ratio < 1.5:
+			good += 1
+	_ok(n > 200 and float(good) / float(n) > 0.9, "the berg's shape follows its collision profile (%d/%d)" % [good, n])
+	_ok(verts.size() > 0 and verts[verts.size() - 1].y < -float(b["keel"]) * 0.9, "and its keel reaches the depth the chart gives")
 	area.bergs.erase(b)
 	area.call("_rebuild_grid")
 	# Pack ice: a lid at the surface, open water below it.

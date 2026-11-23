@@ -22,6 +22,8 @@ var poker_session := false
 var silent_running := false
 ## The captain's own sweets for the mess table (persisted with the crew).
 var captain_candy := {"liquorice": 4, "chocolate": 10, "toffee": 14}
+## Mess Cup winners: [{t, winner}].
+var mess_cup: Array = []
 
 var _chatter_t := 40.0
 var _song_t := 150.0
@@ -334,7 +336,7 @@ func save_state() -> Dictionary:
 	var d := {}
 	for m in members.values():
 		d[(m as CrewMember).id] = (m as CrewMember).to_dict()
-	return {"members": d, "candy": captain_candy, "alert": alert, "silent": silent_running, "meals": _meals_done,
+	return {"members": d, "candy": captain_candy, "alert": alert, "silent": silent_running, "meals": _meals_done, "cup": mess_cup.duplicate(true),
 		"miller_conn": miller_has_conn}
 
 
@@ -346,6 +348,8 @@ func load_state(d: Dictionary) -> void:
 				(members[id] as CrewMember).from_dict(ms[id])
 	if d.get("candy") is Dictionary:
 		captain_candy = d["candy"]
+	if d.get("cup") is Array:
+		mess_cup = d["cup"]
 	alert = int(d.get("alert", 0))
 	silent_running = bool(d.get("silent", false))
 	_meals_done = d.get("meals", {})

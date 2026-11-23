@@ -48,7 +48,7 @@ jobs:
           timeout 180 ~/godot/godot --headless --path . --quit-after 150 2>&1 | tee smoke.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error" smoke.log; then exit 1; fi
 
-      - name: Practical checks (cards, sound, pause, control room, saves, UI, world, intelligence)
+      - name: Practical checks (cards, sound, pause, control room, saves, UI, world, intelligence, conduct)
         run: |
           timeout 300 ~/godot/godot --headless --path . -s tests/check_poker.gd 2>&1 | tee checks.log
           timeout 120 ~/godot/godot --headless --path . -s tests/check_audio.gd 2>&1 | tee -a checks.log
@@ -58,10 +58,11 @@ jobs:
           timeout 300 ~/godot/godot --headless --path . --fixed-fps 30 -s tests/check_ui.gd 2>&1 | tee -a checks.log
           timeout 400 ~/godot/godot --headless --path . --fixed-fps 30 -s tests/check_world.gd 2>&1 | tee -a checks.log
           timeout 400 ~/godot/godot --headless --path . --fixed-fps 30 -s tests/check_intel.gd 2>&1 | tee -a checks.log
+          timeout 400 ~/godot/godot --headless --path . --fixed-fps 30 -s tests/check_conduct.gd 2>&1 | tee -a checks.log
           # One check per line: under "bash -e" only the last command of an
           # "a && b" list stops the step, so each result is tested on its own.
           grep "CHECK:" checks.log
-          for c in POKER AUDIO PAUSE "CONTROL ROOM" SAVE UI WORLD INTEL; do
+          for c in POKER AUDIO PAUSE "CONTROL ROOM" SAVE UI WORLD INTEL CONDUCT; do
             grep -q "$c CHECK: PASS" checks.log || { echo "missing: $c CHECK: PASS"; exit 1; }
           done
 

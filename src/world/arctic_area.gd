@@ -443,27 +443,49 @@ func _berg_mesh(b: Dictionary) -> ArrayMesh:
 	var keel := float(b["keel"])
 	var seed_v := float(b["seed"])
 	var tabular: bool = b["tabular"]
+	# Craggy detail around the same mean profile the collisions use
+	# (berg_radius_at): pinnacles on a weathered berg, cliffs and a flat top
+	# on a tabular one, a wave-cut notch at the waterline, a ridged keel.
+	var nz := FastNoiseLite.new()
+	nz.seed = int(seed_v) + 31
+	nz.frequency = 0.9
+	nz.fractal_octaves = 4
+	var peaks := [fposmod(seed_v * 0.37, TAU), fposmod(seed_v * 1.13 + 2.0, TAU), fposmod(seed_v * 2.71 + 4.0, TAU)]
 	var f := func(u: float, v: float) -> Vector3:
 		var a := v * TAU
-		var wob := 1.0 + 0.16 * sin(3.0 * a + seed_v) + 0.1 * sin(5.0 * a + seed_v * 1.7) + 0.06 * sin(11.0 * a + seed_v * 0.3)
+		var ca := cos(a)
+		var sa := sin(a)
+		var wob := 1.0 + 0.14 * sin(3.0 * a + seed_v) + 0.08 * sin(5.0 * a + seed_v * 1.7)
 		var y: float
 		var rad: float
-		if u < 0.12:
-			var t := u / 0.12
-			y = h * (1.0 if tabular else (1.0 - 0.35 * t * t)) + (0.0 if tabular else 0.25 * h * (1.0 - t))
-			rad = r * (0.85 if tabular else 0.75) * sin(t * PI * 0.5)
-		elif u < 0.4:
-			var t2 := (u - 0.12) / 0.28
-			y = lerpf(h * (1.0 if tabular else 0.65), 0.0, t2)
-			rad = r * lerpf(0.85 if tabular else 0.75, 1.0, t2) * (1.0 + 0.08 * sin(t2 * 9.0 + a * 2.0 + seed_v))
+		# Height of the top along this side (pinnacles for weathered bergs).
+		var top := h
+		if not tabular:
+			var pk := 0.0
+			for p in peaks:
+				pk = maxf(pk, exp(-pow(wrapf(a - float(p), -PI, PI) / 0.55, 2.0)))
+			top = h * (0.55 + 0.45 * pk)
+		if u < 0.14:
+			var t := u / 0.14
+			y = top * (1.0 - (0.04 if tabular else 0.3) * t * t) + (0.0 if tabular else 0.2 * h * (1.0 - t))
+			rad = r * (0.97 if tabular else 0.7) * sin(t * PI * 0.5)
+		elif u < 0.42:
+			var t2 := (u - 0.14) / 0.28
+			y = lerpf(top * (0.98 if tabular else 0.7), 0.0, t2)
+			var mean := 1.0 - 0.3 * clampf(y / maxf(h, 1.0), 0.0, 1.0)
+			rad = r * (1.0 if tabular else mean)
+			# Wave-cut notch just above the water.
+			rad *= 1.0 - 0.1 * exp(-pow((y - 1.2) / 1.0, 2.0))
 		else:
-			var t3 := (u - 0.4) / 0.6
+			var t3 := (u - 0.42) / 0.58
 			y = -keel * t3
-			rad = r * 1.3 * sqrt(maxf(0.0, 1.0 - t3 * t3)) * (1.0 + 0.12 * sin(t3 * 7.0 + a * 3.0 + seed_v))
-		return Vector3(cos(a) * rad * wob, y, sin(a) * rad * wob)
+			rad = r * 1.3 * sqrt(maxf(0.0, 1.0 - t3 * t3)) * (1.0 + 0.1 * sin(t3 * 7.0 + a * 3.0 + seed_v))
+		var n := nz.get_noise_3d(ca * 2.0, y / maxf(r, 1.0) * 2.0, sa * 2.0)
+		rad *= wob * (1.0 + 0.16 * n)
+		return Vector3(ca * rad, y, sa * rad)
 	var uvf := func(u: float, v: float) -> Vector2: return Vector2(v * 8.0, u * 6.0)
 	var mesh := ArrayMesh.new()
-	ParamMesh.add_to(mesh, ParamMesh.surface(f, uvf, 36, 48), _ice_mat)
+	ParamMesh.add_to(mesh, ParamMesh.surface(f, uvf, 56, 80), _ice_mat)
 	return mesh
 
 

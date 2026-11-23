@@ -66,6 +66,22 @@ var _watch_angle := 0.0
 var _follow_pos := Vector3.ZERO
 
 
+## Which side of the sea surface the exterior camera keeps to. It crosses
+## only deliberately: by orbiting well through the surface, or with V.
+var below_surface := false
+const SURFACE_BAND := 4.0
+
+
+## V in the exterior view: take the camera to the other side of the surface.
+func toggle_surface_side() -> void:
+	below_surface = not below_surface
+	if not below_surface and sub and sub.depth > 6.0:
+		# Above the surface with the boat deep: look down at where she is.
+		pitch = maxf(pitch, 0.35)
+	elif below_surface:
+		pitch = minf(pitch, 0.15)
+
+
 func set_mode(m: Mode) -> void:
 	if m != Mode.PERISCOPE and _dragging and mode == Mode.PERISCOPE:
 		_dragging = false
@@ -89,6 +105,8 @@ func set_mode(m: Mode) -> void:
 		shot_changed.emit(String(SHOTS[_shot]))
 	elif m == Mode.ORBIT:
 		_dist_s = distance
+		# Start on the boat's side of the surface.
+		below_surface = sub != null and sub.depth > 12.0
 	_attrs.dof_blur_far_enabled = false
 
 
@@ -198,10 +216,19 @@ func _orbit(dt: float) -> void:
 	var target := sub.global_position + Vector3(0, 4.0, 0)
 	var off := Vector3(cos(_pitch_s) * sin(_yaw_s + sub.heading), sin(_pitch_s), cos(_pitch_s) * cos(_yaw_s + sub.heading)) * _dist_s
 	var pos := target + off
-	# Keep the lens just clear of the surface when skimming it (unless deliberately below).
-	if ocean and _pitch_s > -0.02:
+	# The surface is a boundary: the camera keeps to its side and only crosses
+	# when the orbit takes it clearly through (or on V). Near the surface it
+	# hugs its own side of the waves, so it never flickers between the two.
+	if ocean:
 		var h := ocean.height_at(pos.x, pos.z)
-		pos.y = maxf(pos.y, h + 1.2)
+		if below_surface and pos.y > h + SURFACE_BAND:
+			below_surface = false
+		elif not below_surface and pos.y < h - SURFACE_BAND:
+			below_surface = true
+		if below_surface:
+			pos.y = minf(pos.y, h - 1.5)
+		else:
+			pos.y = maxf(pos.y, h + 1.2)
 	pos += _shake_offset(dt)
 	camera.global_transform = Transform3D(Basis.looking_at(target - pos, Vector3.UP), pos)
 	camera.fov = lerpf(camera.fov, 52.0, k)

@@ -67,6 +67,7 @@ Sounds can be replaced by dropping files into the `custom/audio/` folder next to
 | **L** | Captain's Log, orders, signals, watch report |
 | **N** | Fast to the next waypoint |
 | **+ / −** | Time compression (×1, ×2, ×5, ×10, ×25, ×50, ×100, ×250), also on the command bar |
+| **V** | Exterior view: take the camera above or below the surface |
 | **F5** | Quick save |
 | **F10** | Developer panel (only when enabled in Settings) |
 | **Space** | Fire, from the periscope view. The XO asks you to confirm, and you have to press it again. |
@@ -243,6 +244,59 @@ A foreign patrol aircraft can find a mast or a surfaced boat. Keep the masts dow
 
 **Consequences.** An attack, a loss or a confirmed detection stirs up the foreign forces: more patrols, and aircraft sent to look where it happened.
 
+## Your crew, your orders
+
+**The crew judge what you do.** Each person weighs your orders against what matters to them:
+
+- their country and their trust in government, command and you;
+- their shipmates and their tolerance for risk;
+- their own convictions.
+
+On their own initiative, and within what is realistic aboard a warship, they may:
+
+- challenge an order (the XO's objection depends on what is in your sights);
+- ask for a word in private when it is quiet;
+- refuse to take part in a specific act. Someone else stands their watch, usually less skilfully, and they come back after a while.
+- ask, formally, to be reassigned.
+
+There is no score for any of this. You see it in what people do, in the log, and on the desk in your cabin.
+
+**You are free to command as you see fit.** Follow your orders, bend them, ignore a recall, fire without authority, or take the boat where she should not go. Nothing ends the game. The world answers:
+
+- **Northern Command's signals:** they ask for your position, recall you, can relieve you of command, and warn other units. You copy them only with a mast up.
+- **Your crew's judgement.**
+- **The other side's interest.**
+
+Opportunities you miss stay missed. Your standing with Northern Command is shown in your cabin and in the debrief.
+
+## Aboard
+
+- **The engine room, the mess and your cabin** are working interfaces rather than walk-around rooms:
+  - **Engine room:** a live plant mimic (diesels, battery, AIP, motor, shaft), equipment condition and the hull, as the watch keeper sees them.
+  - **Mess:** who is there and what they are doing, meals, and the sweets tally.
+  - **Cabin:** your desk:
+    - the log and intelligence;
+    - rest;
+    - the watch bill and your orders;
+    - what the crew have brought you.
+- **The Mess Cup.** Play for it at the mess table:
+  - up to four players, each staking a few sweets;
+  - equal chips, last one standing;
+  - the winner takes the stakes and the cup, and the record is kept.
+- **The exterior camera** keeps to its side of the sea surface. It starts on the boat's side; press **V**, or orbit clearly through the surface, to cross.
+
+## Ships and ice
+
+- **Distinct ship classes:**
+  - foreign frigates with a hangar and flight deck;
+  - corvettes with ASW launchers and a lattice mast;
+  - a coast guard cutter with a high-visibility stripe, a working deck and a crane;
+  - container ships and bulk carriers;
+  - trawlers and research ships.
+- **Damage is visible:** fire, smoke, a list, scorched hull plating where the hit was.
+- **Detail fades with distance.**
+- **Icebergs:** weathered pinnacles or tabular cliffs, a wave-cut notch at the waterline and a keel below. Their shape follows the same profile that collisions and the navigator's clearance advice use.
+
 ## Time compression
 
 - **Levels:** ×1 to ×250, from the keys or the command bar.
@@ -277,6 +331,11 @@ A foreign patrol aircraft can find a mast or a surfaced boat. Keep the masts dow
 - **The wider region is thinly populated.** It has about ten ships on voyages and a few aircraft at a time; the original patrol area keeps its own story traffic.
 - **Distant ships are simple.** Ships beyond the horizon are drawn only as contacts. Regional ships use the existing ship models.
 - **No helicopters.** Foreign warships do not yet launch them.
+- **The interiors are interfaces.** The engine room, mess and cabin are 2D working interfaces. Only the control room has the path-traced, walk-to-station treatment.
+- **The underwater view.** Looking up at a shallow angle from just below the surface can show a crisp band where the distant surface is.
+- **Limits of freedom of command:**
+  - The crew refuse, object and ask to leave, but never take the boat from you.
+  - A boat believed to be defecting is hunted and disowned, but the other side does not yet receive her.
 - **The 3D world is streamed around you.**
   - Near the boat: detailed seabed and land.
   - Further away: coarse land.
@@ -290,15 +349,16 @@ A foreign patrol aircraft can find a mast or a surfaced boat. Keep the masts dow
   - The crew are figures that stand or sit at their stations.
   - Only some lines are voiced; the rest are subtitled.
 
-## Not in this build yet
+## Deferred
 
-These belong to the final checkpoint of this mission:
+These are deferred:
 
-- crew loyalty and conscience;
-- freedom of command (going your own way, and how the world answers);
-- the remaining interiors;
-- better vessel and iceberg models;
-- the exterior camera at the water's surface.
+- path-traced interiors for the engine room, mess and cabin;
+- helicopters;
+- branching fjords;
+- the XO relieving a captain;
+- the other side receiving a defector;
+- verification on Windows hardware.
 
 ## Testing
 
@@ -306,6 +366,6 @@ Windows gameplay and audio have **not** been played on Windows by the developer.
 
 - The Windows build is produced by GitHub Actions.
 - Testing was done on Linux:
-  - headless checks: saves, interface, chart against seabed, collisions, time compression, the hull, traffic, aircraft, reports, intelligence, damage, cards, sound resolution, pause and control room;
+  - headless checks: saves, interface, chart against seabed, collisions, time compression, the hull, traffic, aircraft, reports, intelligence, damage, crew judgement, command standing, rooms, the Mess Cup, ship classes, iceberg shape, cards, sound resolution, pause and control room;
   - a 62-hour simulated patrol;
   - software-rendered screenshots.

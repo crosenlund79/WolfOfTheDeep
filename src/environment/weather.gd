@@ -380,7 +380,9 @@ func _apply() -> void:
 		var uw := _underwater_color()
 		var depth_dark := exp(-underwater_depth * 0.018)
 		env.fog_light_color = uw * depth_dark
-		env.fog_density = 0.028
+		# Arctic water: a few tens of metres of visibility, less the deeper and
+		# darker it gets.
+		env.fog_density = lerpf(0.028, 0.05, smoothstep(10.0, 60.0, underwater_depth))
 		env.fog_aerial_perspective = 0.0
 		env.fog_sky_affect = 1.0
 		env.volumetric_fog_enabled = true

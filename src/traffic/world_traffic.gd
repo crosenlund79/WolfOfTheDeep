@@ -222,6 +222,7 @@ func _make_node(v: Dictionary) -> SurfaceShip:
 	s.name = "Traffic_" + String(v["id"])
 	s.uid = String(v["id"])
 	s.recycle = false
+	s.variant = {"vakt": "opv", "grim": "corvette"}.get(String(v["class"]), "bulk" if String(v["name"]).contains("BULK") else "")
 	world.add_child(s)
 	_nodes[v["id"]] = s
 	return s

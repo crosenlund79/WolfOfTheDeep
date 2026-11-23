@@ -55,6 +55,8 @@ var commander: Dictionary = {}
 var unit_id := ""
 ## Far away: no wave motion or meshes, only the voyage (distant traffic).
 var far := false
+## Class within the kind: "corvette" / "opv" (patrol), "bulk" (merchant).
+var variant := ""
 var datum := Vector3.ZERO
 var _behavior_t := 0.0
 var _ping_t := 300.0
@@ -118,8 +120,16 @@ func _ready() -> void:
 		source_level = 160.0
 		top_height = 27.0
 		bow_length = 28.0
-		_build_frigate()
-		_body.scale = Vector3(0.7, 0.7, 0.7)
+		if variant == "opv":
+			length = 92.0
+			beam = 16.0
+			draft = 6.0
+			contact_name = "PATROL VESSEL  ·  COAST GUARD"
+			source_level = 164.0
+			top_height = 24.0
+			_build_opv()
+		else:
+			_build_corvette()
 		_churn = _make_churn()
 		return
 	if kind == Kind.SUBMARINE:
@@ -138,6 +148,17 @@ func _ready() -> void:
 		mi.mesh = SubmarineBuilder.build_hull_mesh(mat)
 		mi.scale = Vector3(1.05, 1.05, 1.05)
 		_body.add_child(mi)
+		_churn = _make_churn()
+		return
+	if kind == Kind.MERCHANT and variant == "bulk":
+		length = 180.0
+		beam = 30.0
+		draft = 10.0
+		contact_name = "MERCHANT  ·  BULK"
+		top_height = 9.0 + 26.0
+		bow_length = 30.0
+		source_level = 177.0
+		_build_bulk()
 		_churn = _make_churn()
 		return
 	if kind == Kind.MERCHANT:
@@ -284,6 +305,7 @@ func strike(world_pos: Vector3) -> void:
 	_hits += 1
 	_add_fire(Vector3(clampf(l.x, -beam * 0.45, beam * 0.45), 1.5, l.z))
 	_apply_hit(l)
+	_scorch(l)
 	var rate := sink_rate_from_damage()
 	if state == State.STRICKEN:
 		sink_rate = maxf(sink_rate, rate)
@@ -298,6 +320,26 @@ func strike(world_pos: Vector3) -> void:
 		_trim = deg_to_rad(float(damage["flooding"]) * 3.0)
 		return
 	_begin_sinking(rate)
+
+
+## A blackened, torn patch on the hull where the warhead went off.
+func _scorch(l: Vector3) -> void:
+	var g := Gradient.new()
+	g.set_color(0, Color(0.02, 0.02, 0.02, 0.95))
+	g.set_color(1, Color(0.05, 0.04, 0.03, 0.0))
+	var tex := GradientTexture2D.new()
+	tex.gradient = g
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(1.0, 0.5)
+	tex.width = 64
+	tex.height = 64
+	var dcl := Decal.new()
+	dcl.texture_albedo = tex
+	dcl.size = Vector3(beam * 0.9, 12.0, 14.0)
+	dcl.position = Vector3(signf(l.x) * beam * 0.45 if absf(l.x) > 0.1 else beam * 0.45, 0.5, l.z)
+	dcl.rotation.z = -signf(l.x) * PI * 0.5 if absf(l.x) > 0.1 else -PI * 0.5
+	_body.add_child(dcl)
 
 
 ## Damage from a hit at local position l (accumulates over hits).
@@ -648,8 +690,17 @@ func _box(size: Vector3, pos: Vector3, mat: Material, rot_y: float = 0.0) -> Mes
 	mi.material_override = mat
 	mi.position = pos
 	mi.rotation.y = rot_y
+	_lod(mi, size.length())
 	_body.add_child(mi)
 	return mi
+
+
+## Small parts fade out with distance (they would not be made out anyway).
+static func _lod(gi: GeometryInstance3D, extent: float) -> void:
+	if extent < 3.5:
+		gi.visibility_range_end = 2500.0 + extent * 600.0
+		gi.visibility_range_end_margin = 300.0
+		gi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 
 
 func _prism(bottom: Vector2, top: Vector2, height: float, pos: Vector3, mat: Material) -> MeshInstance3D:
@@ -691,6 +742,7 @@ func _cyl(r: float, h: float, pos: Vector3, mat: Material) -> MeshInstance3D:
 	mi.mesh = cm
 	mi.material_override = mat
 	mi.position = pos
+	_lod(mi, r * 4.0)
 	_body.add_child(mi)
 	return mi
 
@@ -835,6 +887,138 @@ func _build_frigate() -> void:
 		lbl.double_sided = false
 		lbl.position = Vector3(side * (beam * 0.5 + 0.35), 4.5, -length * 0.5 + 24.0)
 		lbl.rotation.y = side * PI * 0.5
+		_body.add_child(lbl)
+
+
+## Corvette (GRIM class): no hangar; ASW rocket launchers forward of the
+## bridge, a lattice mast, torpedo tubes and a clear quarterdeck aft.
+func _build_corvette() -> void:
+	var haze := _ship_shader(Color(0.38, 0.4, 0.41), 0.55, 0.3)
+	_hull_mat = _ship_shader(Color(0.35, 0.37, 0.39), 0.6, 0.25)
+	_hull_mat.set_shader_parameter("boot_color", Color(0.08, 0.08, 0.09))
+	_hull_mat.set_shader_parameter("boot_top", 0.35)
+	_add_hull(_hull_fn(length, beam, draft, 6.0, 28.0, 8.0, 0.12, 2.6), _hull_mat)
+	var dark := _ship_shader(Color(0.12, 0.13, 0.14), 0.5, 0.35)
+	_prism(Vector2(4.6, 12.0), Vector2(4.0, 11.0), 4.6, Vector3(0, 6.0, -3.0), haze)
+	_prism(Vector2(3.8, 5.0), Vector2(3.0, 4.0), 3.2, Vector3(0, 10.6, -9.0), haze)
+	_box(Vector3(6.2, 0.6, 1.2), Vector3(0, 12.6, -13.2), dark)        # bridge windows
+	# Lattice mast: legs and platforms.
+	for lx in [-1.0, 1.0]:
+		var leg := _cyl(0.16, 12.0, Vector3(lx * 0.9, 19.8, -6.0), dark)
+		leg.rotation.z = lx * 0.06
+	for k in 4:
+		_box(Vector3(2.2 - k * 0.35, 0.12, 0.12), Vector3(0, 15.0 + k * 3.0, -6.0), dark)
+	_box(Vector3(3.0, 0.3, 1.0), Vector3(0, 26.0, -6.0), dark)
+	_cyl(0.6, 0.6, Vector3(0, 24.2, -6.0), dark)
+	var funnel := _prism(Vector2(1.6, 2.4), Vector2(1.2, 1.8), 4.0, Vector3(0, 10.6, 6.0), haze)
+	funnel.set_meta("hot", true)
+	# Gun and ASW rocket launchers forward.
+	_prism(Vector2(1.8, 2.2), Vector2(1.2, 1.6), 1.6, Vector3(0, 6.3, -length * 0.5 + 22.0), haze)
+	var barrel := _cyl(0.13, 5.0, Vector3(0, 7.3, -length * 0.5 + 18.5), dark)
+	barrel.rotation.x = deg_to_rad(90.0)
+	for lx2 in [-1.0, 1.0]:
+		var rl := _box(Vector3(1.6, 1.2, 2.4), Vector3(lx2 * 2.3, 6.9, -length * 0.5 + 30.0), dark)
+		rl.rotation.x = deg_to_rad(-18.0)
+		var tt := _box(Vector3(0.9, 0.9, 4.0), Vector3(lx2 * (beam * 0.5 - 1.6), 6.6, 16.0), dark)
+		tt.rotation.y = lx2 * 0.3
+	_box(Vector3(3.0, 1.0, 2.0), Vector3(0, 6.5, length * 0.5 - 10.0), dark)
+	_nav_light(Vector3(0, 26.6, -6.0), Color(1.0, 0.95, 0.85))
+	_nav_light(Vector3(-4.2, 11.5, -9.0), Color(1.0, 0.1, 0.05))
+	_nav_light(Vector3(4.2, 11.5, -9.0), Color(0.1, 1.0, 0.35))
+	_nav_light(Vector3(0, 8.0, length * 0.5 - 3.0), Color(1.0, 0.95, 0.85))
+	_hull_number("514", 3.8, -length * 0.5 + 16.0)
+
+
+## Coast guard offshore patrol vessel: high bridge forward, long working
+## deck with a crane aft, high-visibility stripe and markings.
+func _build_opv() -> void:
+	var white := _ship_shader(Color(0.8, 0.81, 0.82), 0.5, 0.2)
+	_hull_mat = _ship_shader(Color(0.74, 0.75, 0.77), 0.55, 0.2)
+	_hull_mat.set_shader_parameter("boot_color", Color(0.45, 0.07, 0.06))
+	_hull_mat.set_shader_parameter("boot_top", 0.4)
+	_add_hull(_hull_fn(length, beam, draft, 7.0, 26.0, 9.0, 0.1, 2.2), _hull_mat)
+	var dark := _ship_shader(Color(0.1, 0.11, 0.12), 0.5, 0.3)
+	var red := _ship_shader(Color(0.75, 0.08, 0.06), 0.5, 0.2)
+	var blue := _ship_shader(Color(0.08, 0.18, 0.5), 0.5, 0.2)
+	_prism(Vector2(6.6, 13.0), Vector2(6.2, 12.0), 6.0, Vector3(0, 7.0, -length * 0.5 + 34.0), white)
+	_prism(Vector2(6.0, 5.0), Vector2(5.6, 4.4), 3.4, Vector3(0, 13.0, -length * 0.5 + 28.0), white)
+	_box(Vector3(11.8, 1.1, 0.3), Vector3(0, 15.2, -length * 0.5 + 23.2), dark)   # wraparound windows
+	_cyl(0.3, 9.0, Vector3(0, 20.9, -length * 0.5 + 30.0), dark)
+	_box(Vector3(3.4, 0.35, 1.2), Vector3(0, 25.0, -length * 0.5 + 30.0), dark)
+	var funnel := _prism(Vector2(1.6, 2.0), Vector2(1.3, 1.6), 3.0, Vector3(0, 13.0, -length * 0.5 + 44.0), white)
+	funnel.set_meta("hot", true)
+	# Working deck and crane aft.
+	_box(Vector3(beam - 3.0, 0.3, 30.0), Vector3(0, 7.15, length * 0.5 - 20.0), dark)
+	_cyl(0.8, 4.0, Vector3(beam * 0.25, 9.0, length * 0.5 - 30.0), red)
+	var boom := _cyl(0.32, 18.0, Vector3(beam * 0.25, 11.0, length * 0.5 - 30.0), red)
+	boom.rotation.x = deg_to_rad(62.0)
+	# Stripes and markings.
+	for side in [-1.0, 1.0]:
+		var st := _box(Vector3(0.12, 5.5, 2.4), Vector3(side * (beam * 0.5 + 0.05), 4.0, -length * 0.5 + 22.0), red)
+		st.rotation.x = deg_to_rad(-25.0)
+		var st2 := _box(Vector3(0.12, 5.5, 0.9), Vector3(side * (beam * 0.5 + 0.05), 4.0, -length * 0.5 + 24.2), blue)
+		st2.rotation.x = deg_to_rad(-25.0)
+		var lbl := Label3D.new()
+		lbl.text = "COAST GUARD"
+		lbl.font_size = 256
+		lbl.pixel_size = 0.012
+		lbl.modulate = Color(0.08, 0.1, 0.2)
+		lbl.shaded = true
+		lbl.double_sided = false
+		lbl.position = Vector3(side * (beam * 0.5 + 0.3), 5.2, 12.0)
+		lbl.rotation.y = side * PI * 0.5
+		lbl.visibility_range_end = 3000.0
+		_body.add_child(lbl)
+	_nav_light(Vector3(0, 25.6, -length * 0.5 + 30.0), Color(1.0, 0.95, 0.85))
+	_nav_light(Vector3(-6.2, 14.5, -length * 0.5 + 28.0), Color(1.0, 0.1, 0.05))
+	_nav_light(Vector3(6.2, 14.5, -length * 0.5 + 28.0), Color(0.1, 1.0, 0.35))
+	_nav_light(Vector3(0, 9.0, length * 0.5 - 3.0), Color(1.0, 0.95, 0.85))
+	_name_label(Color(0.08, 0.1, 0.2), 5.0, 3.0)
+
+
+## Bulk carrier: hatches and deck cranes forward, accommodation and funnel aft.
+func _build_bulk() -> void:
+	_hull_mat = _ship_shader(Color(0.12, 0.13, 0.15), 0.6, 0.2)
+	_hull_mat.set_shader_parameter("boot_color", Color(0.42, 0.08, 0.06))
+	_hull_mat.set_shader_parameter("boot_top", 0.55)
+	_add_hull(_hull_fn(length, beam, draft, 9.0, 30.0, 18.0, 0.06, 1.6), _hull_mat)
+	var deck := _ship_shader(Color(0.32, 0.24, 0.18), 0.7, 0.2)
+	var white := _ship_shader(Color(0.82, 0.82, 0.8), 0.5, 0.25)
+	var crane := _ship_shader(Color(0.75, 0.6, 0.12), 0.5, 0.2)
+	var dark := _ship_shader(Color(0.1, 0.1, 0.11), 0.5, 0.3)
+	for i in 6:
+		var z := -length * 0.5 + 30.0 + float(i) * 20.0
+		_box(Vector3(beam - 8.0, 1.6, 14.0), Vector3(0, 9.8, z), deck)
+		if i in [0, 2, 4]:
+			_cyl(1.0, 6.0, Vector3(0, 12.0, z + 10.0), crane)
+			var jib := _cyl(0.35, 22.0, Vector3(0, 14.5, z + 10.0), crane)
+			jib.rotation.x = deg_to_rad(68.0)
+			jib.rotation.y = deg_to_rad(30.0 * float(i - 2))
+	_prism(Vector2(11.0, 7.5), Vector2(10.6, 7.2), 13.0, Vector3(0, 9.0, length * 0.5 - 24.0), white)
+	_box(Vector3(beam + 1.0, 0.6, 3.0), Vector3(0, 21.6, length * 0.5 - 30.0), white)       # bridge wings
+	_box(Vector3(20.0, 1.0, 0.3), Vector3(0, 20.6, length * 0.5 - 31.6), dark)              # windows
+	var funnel := _prism(Vector2(2.6, 3.6), Vector2(2.2, 3.0), 8.0, Vector3(0, 22.0, length * 0.5 - 14.0), _ship_shader(Color(0.2, 0.3, 0.55), 0.5, 0.95))
+	funnel.set_meta("hot", true)
+	_cyl(0.2, 8.0, Vector3(0, 26.0, length * 0.5 - 26.0), dark)
+	_nav_light(Vector3(0, 30.5, length * 0.5 - 26.0), Color(1.0, 0.95, 0.85))
+	_nav_light(Vector3(0, 14.0, -length * 0.5 + 6.0), Color(1.0, 0.95, 0.85))
+	_nav_light(Vector3(-15.5, 21.0, length * 0.5 - 30.0), Color(1.0, 0.1, 0.05))
+	_nav_light(Vector3(15.5, 21.0, length * 0.5 - 30.0), Color(0.1, 1.0, 0.35))
+	_name_label(Color(0.95, 0.95, 0.95), 6.0, 4.0)
+
+
+func _hull_number(text: String, y: float, z: float) -> void:
+	for side in [-1.0, 1.0]:
+		var lbl := Label3D.new()
+		lbl.text = text
+		lbl.font_size = 512
+		lbl.pixel_size = 0.007
+		lbl.modulate = Color(0.06, 0.06, 0.07)
+		lbl.shaded = true
+		lbl.double_sided = false
+		lbl.position = Vector3(side * (beam * 0.5 + 0.3), y, z)
+		lbl.rotation.y = side * PI * 0.5
+		lbl.visibility_range_end = 4000.0
 		_body.add_child(lbl)
 
 
