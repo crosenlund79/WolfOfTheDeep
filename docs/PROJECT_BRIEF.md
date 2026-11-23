@@ -10,8 +10,8 @@ This brief now records the active game, Wolf of the Deep. This file **records** 
 - **Perspective / art direction:** Realistic 3D exterior and periscope views with clear 2D displays; interior compartments (user, Mission 003)
 - **Confirmed mechanics and constraints:** Crew functions bound to replaceable roles, not people; imperfect sensor information; rest and delegation with standing orders; optional, interruptible Texas Hold'em for persistent candy; Basse's singing only in short muffled fragments; inbox recordings are an immutable archive; story spoilers kept in clearly marked internal files only (user, Mission 003)
 - **Explicitly out of scope:** Installer; crew injury or loss implementation (architecture only) (user, Mission 003)
-- **Existing modules / boundaries:** `src/` modules: ocean, sky, environment (weather), world (clock, Arctic area), submarine, ships, weapons, encounter, sensors, crew (crew, dialogue, watch officer, figures), interior, command_room, patrol (patrol, spoiler-marked story), poker, audio, ui, cameras, fx, main (composition and controls)
-- **Testing framework (GUT or GdUnit4) and commands:** Approved exception: practical checks only, no test framework (user, Mission 003). Commands: `godot --headless --path . -s tests/check_poker.gd`, `godot --headless --path . -s tests/check_audio.gd`, `godot --headless --path . -- --sim-hours=62`
+- **Existing modules / boundaries:** `src/` modules: core (settings, campaign saves), log (Captain's Log), nav (chart data), ocean, sky, environment (weather), world (clock, regional geography, terrain streaming, Arctic area and ice), submarine, ships, weapons, encounter, sensors, crew (crew, dialogue, watch officer, figures), interior, command_room, control_room_pilot, patrol (patrol, spoiler-marked story), poker, audio, ui, cameras, fx, main (composition and controls)
+- **Testing framework (GUT or GdUnit4) and commands:** Approved exception: practical checks only, no test framework (user, Mission 003). Commands: `godot --headless --path . -s tests/check_poker.gd`, `godot --headless --path . -s tests/check_audio.gd`, and with `--fixed-fps 30`: `tests/check_pause.gd`, `tests/check_control_room.gd`, `tests/check_save.gd`, `tests/check_ui.gd`, `tests/check_world.gd`; `godot --headless --path . -- --sim-hours=62`
 - **Target platforms:** Windows x64 playtest builds via GitHub Actions (runtime asset overrides cover Windows/Linux; other platforms need an explicit decision)
 - **Asset override notes:** Runtime `custom/` folder overrides required; see `assets/README.md` and `docs/AUDIO_LIBRARY.md`
 
@@ -27,7 +27,16 @@ This brief now records the active game, Wolf of the Deep. This file **records** 
 - **Acceptance criteria / done when:** A playable patrol with an achievable resolution; spoiler-free delivery notes; Windows artifact link, launch instructions, controls and limitations provided.
 - **Relevant checks:** Headless launch; simulated patrol; card-engine and sound-resolution checks; software-rendered screenshots of the main views.
 
-## Experiment in progress (branch `claude/control-room-pilot`)
+## Current mission (branch `claude/mission-005-living-arctic`)
+
+**Status: Approved in conversation, 2026-11-23 — Development Mission 005 "The Living Arctic"** (builds on the control room pilot with its visual polish, commit `e78a4cb`; not to be merged automatically).
+
+- **Objective (summary):** main menu, persistent saves, settings and developer tools; persistent command bar; periscope and exterior camera fixes; a coherent ~600 × 600 km charted region with a seabed that agrees with the chart, soundings, ice and restricted navigation, dangerous depth, route planning and time compression; contact list, Captain's Log, intelligence, reputations, battle damage assessment, delayed reports, aircraft; freedom of command and crew loyalty foundations; interiors, vessels and icebergs; audio and poker preserved.
+- **Priorities (user):** A playability > B navigation > C world / intelligence > D visuals > E emergent systems. No spoilers in delivery notes.
+- **Recovery checkpoints:** R0 baseline, R1 command interface, R2 Arctic navigation, R3 living world, R4 final integration. Each is a separate remote backup branch (`backup/mission-005-r*`); Windows builds at R0, R2 and R4.
+- **Delivery notes:** `docs/MISSION_005.md`.
+
+## Earlier experiment (branch `claude/control-room-pilot`)
 
 **Status: Approved in conversation, 2026-11-22 — Mission 004C "The Control Room — Visual Quality Pilot"** (experiment; not to be merged automatically). The earlier 2D cutaway experiment (`claude/interior-rework-experiment`) was rejected by the user and is not built upon.
 

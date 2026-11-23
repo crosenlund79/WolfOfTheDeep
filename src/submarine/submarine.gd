@@ -22,15 +22,24 @@ const DEPTH_MODES := [
 	{"label": "60 M", "depth": 60.0},
 	{"label": "100 M", "depth": 100.0},
 	{"label": "150 M", "depth": 150.0},
-	{"label": "200 M  (TEST DEPTH)", "depth": 200.0},
+	{"label": "200 M  (SAFE LIMIT)", "depth": 200.0},
+	{"label": "250 M  (BEYOND SAFE DEPTH)", "depth": 250.0},
+	{"label": "300 M  (DANGEROUS)", "depth": 300.0},
+	{"label": "350 M  (EXTREME)", "depth": 350.0},
 ]
-const TEST_DEPTH := 200.0
-const CRUSH_DEPTH := 290.0
+## Normal operating limit. Below it the hull works harder; nothing stops the
+## boat going deeper except physics.
+const SAFE_DEPTH := 200.0
+const TEST_DEPTH := 250.0
+const COLLAPSE_DEPTH := 380.0
+const CRUSH_DEPTH := COLLAPSE_DEPTH
 const LAYER_DEPTH := 55.0
 
 signal pd_reached
 signal approaching_pd
 signal damaged(amount: float, kind: String)
+## Pressure events below the safe depth: kind = leak / equipment / frames / collapse.
+signal pressure_event(kind: String, detail: String)
 
 ## Helm: the helmsman steers to the ordered course.
 var ordered_heading := 0.0
@@ -294,6 +303,7 @@ func _advance_step(dt: float) -> void:
 	if helm_auto:
 		rudder = clampf(wrapf(ordered_heading - heading, -PI, PI) * 3.0, -1.0, 1.0)
 	_advance_plant(dt)
+	_advance_pressure(dt)
 	var turn_rate := speed / 260.0
 	heading = wrapf(heading + rudder * turn_rate * dt, -PI, PI)
 	var fwd := forward()
@@ -430,6 +440,51 @@ func _advance_plant(dt: float) -> void:
 	transient = maxf(transient - dt * 0.2, 0.0)
 
 
+## Depth at which the hull would fail now: lower with damage and fatigue.
+func collapse_depth() -> float:
+	return COLLAPSE_DEPTH * (0.6 + 0.4 * clampf(hull / 100.0, 0.0, 1.0)) * (1.0 - 0.22 * stress)
+
+
+## 0 at the safe depth, 1 at the collapse depth (can exceed 1 briefly).
+func pressure_load() -> float:
+	if depth <= SAFE_DEPTH:
+		return 0.0
+	return (depth - SAFE_DEPTH) / maxf(collapse_depth() - SAFE_DEPTH, 1.0)
+
+
+func _advance_pressure(dt: float) -> void:
+	var x := pressure_load()
+	if x <= 0.0 or hull <= 0.0:
+		return
+	# Fatigue builds with depth and time spent there.
+	stress = minf(stress + x * x * 0.12 * dt / 3600.0, 1.0)
+	if depth >= collapse_depth():
+		if invulnerable:
+			return
+		hull = 0.0
+		flooding = 1.0
+		leak = 1.0
+		pressure_event.emit("collapse", "")
+		return
+	# Failures: rare just below the safe depth, frequent near the limit, more
+	# likely in a damaged hull.
+	var rate := pow(x, 3.0) * 5.0 * (1.0 + (100.0 - hull) / 40.0) * (1.0 + stress)
+	if randf() < rate * dt / 3600.0 and not invulnerable:
+		var roll := randf()
+		if roll < 0.45:
+			leak = clampf(leak + randf_range(0.08, 0.3) * (0.5 + x), 0.0, 1.0)
+			pressure_event.emit("leak", "A seawater joint is weeping aft under the pressure.")
+		elif roll < 0.75:
+			var keys := equipment.keys()
+			var k: String = keys[randi() % keys.size()]
+			equipment[k] = maxf(float(equipment[k]) - randf_range(0.2, 0.5), 0.0)
+			pressure_event.emit("equipment", "%s took damage from the pressure." % k.capitalize())
+		else:
+			var d := randf_range(2.0, 7.0) * (0.5 + x)
+			hull = maxf(hull - d, 0.0)
+			pressure_event.emit("frames", "Frames groaning: hull integrity down to %d%%." % int(hull))
+
+
 ## Radiated noise (arbitrary dB-like scale) for other ships' sonar.
 func noise_level() -> float:
 	var kn := speed / KNOT
@@ -499,14 +554,30 @@ func resolve_collision(info: Dictionary) -> float:
 	var nrm: Vector3 = info["normal"]
 	var vel := forward() * speed + Vector3(0.0, -_depth_rate, 0.0)
 	var impact := maxf(-vel.dot(nrm), 0.0)
+	if String(info.get("kind", "")) in ["seabed", "land"]:
+		# Running onto the bottom: the hull ploughs in, even on a gentle slope.
+		impact = maxf(impact, absf(speed) * 0.3)
 	var push := float(info["depth"]) + 0.3
-	if nrm.y > 0.5:
+	if nrm.y < -0.5:
+		# Ice overhead (pack ice): forced back down; the impact is the rate of rise.
+		impact = maxf(-_depth_rate, 0.0)
+		depth = depth + push
+		_depth_rate = maxf(_depth_rate, 0.0)
+		_target_depth = maxf(_target_depth, depth + 2.0)
+	elif nrm.y > 0.5:
+		var room := depth - 2.05
 		depth = maxf(depth - push, 2.05)
 		_depth_rate = minf(_depth_rate, 0.0)
 		_target_depth = minf(_target_depth, depth)
+		# Already as high as she can go: hard aground, pushed back off the slope.
+		var hz := Vector3(nrm.x, 0.0, nrm.z)
+		if push > room and hz.length() > 0.01:
+			position += hz.normalized() * (push - room)
 	else:
 		position += Vector3(nrm.x, 0.0, nrm.z) * push
 	var dmg := 0.0
+	if invulnerable:
+		impact = minf(impact, 0.3)
 	if impact > 0.35:
 		dmg = clampf(impact * impact * 3.2, 1.0, 45.0)
 		hull = maxf(hull - dmg, 0.0)

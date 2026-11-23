@@ -48,17 +48,19 @@ jobs:
           timeout 180 ~/godot/godot --headless --path . --quit-after 150 2>&1 | tee smoke.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error" smoke.log; then exit 1; fi
 
-      - name: Practical checks (cards, sound resolution)
+      - name: Practical checks (cards, sound, pause, control room, saves, UI, world)
         run: |
           timeout 300 ~/godot/godot --headless --path . -s tests/check_poker.gd 2>&1 | tee checks.log
           timeout 120 ~/godot/godot --headless --path . -s tests/check_audio.gd 2>&1 | tee -a checks.log
-          timeout 180 ~/godot/godot --headless --path . -s tests/check_pause.gd 2>&1 | tee -a checks.log
+          timeout 180 ~/godot/godot --headless --path . --fixed-fps 30 -s tests/check_pause.gd 2>&1 | tee -a checks.log
           timeout 300 ~/godot/godot --headless --path . --fixed-fps 30 -s tests/check_control_room.gd 2>&1 | tee -a checks.log
-          timeout 300 ~/godot/godot --headless --path . -s tests/check_save.gd 2>&1 | tee -a checks.log
+          timeout 300 ~/godot/godot --headless --path . --fixed-fps 30 -s tests/check_save.gd 2>&1 | tee -a checks.log
           timeout 300 ~/godot/godot --headless --path . --fixed-fps 30 -s tests/check_ui.gd 2>&1 | tee -a checks.log
+          timeout 400 ~/godot/godot --headless --path . --fixed-fps 30 -s tests/check_world.gd 2>&1 | tee -a checks.log
           grep -q "POKER CHECK: PASS" checks.log && grep -q "AUDIO CHECK: PASS" checks.log
           grep -q "PAUSE CHECK: PASS" checks.log && grep -q "CONTROL ROOM CHECK: PASS" checks.log
           grep -q "SAVE CHECK: PASS" checks.log && grep -q "UI CHECK: PASS" checks.log
+          grep -q "WORLD CHECK: PASS" checks.log
 
       - name: Export Windows x64 (portable, single executable)
         run: |
@@ -66,7 +68,7 @@ jobs:
           mkdir -p build/WolfOfTheDeep
           ~/godot/godot --headless --path . --export-release "Windows Desktop" build/WolfOfTheDeep/WolfOfTheDeep.exe
           test -s build/WolfOfTheDeep/WolfOfTheDeep.exe
-          cp docs/MISSION_003.md build/WolfOfTheDeep/README.md
+          cp docs/MISSION_005.md build/WolfOfTheDeep/README.md
           cp docs/AUDIO_LIBRARY.md build/WolfOfTheDeep/AUDIO_LIBRARY.md
           cp docs/CONTROL_ROOM_PILOT.md build/WolfOfTheDeep/README_CONTROL_ROOM_PILOT.md
           # External folder for user sound overrides (read at startup, no rebuild).

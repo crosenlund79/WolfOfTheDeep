@@ -3,6 +3,9 @@
 shader_type spatial;
 
 global uniform float thermal_mode;
+// Distant land tiles skip the area covered by the detailed near tiles.
+uniform vec4 hole = vec4(0.0);
+uniform float use_hole = 0.0;
 
 varying vec3 v_world;
 
@@ -25,7 +28,11 @@ void fragment() {
 	vec3 n = normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz);
 	float slope = 1.0 - n.y;
 	float h = v_world.y;
-	float nn = vnoise(v_world.xz * 0.004) * 0.6 + vnoise(v_world.xz * 0.03) * 0.4;
+	if (use_hole > 0.5 && v_world.x > hole.x && v_world.x < hole.z && v_world.z > hole.y && v_world.z < hole.w) {
+		discard;
+	}
+	vec2 wp = mod(v_world.xz, 8192.0);   // keep noise precise far from the origin
+	float nn = vnoise(wp * 0.004) * 0.6 + vnoise(wp * 0.03) * 0.4;
 	vec3 snow = vec3(0.88, 0.92, 0.97);
 	vec3 rock = vec3(0.13, 0.12, 0.12) * (0.7 + nn * 0.6);
 	float snow_w = smoothstep(0.5, 0.3, slope + (nn - 0.5) * 0.25);

@@ -24,6 +24,7 @@ const SOURCES := {
 }
 
 var sub: Submarine
+var chart_main: ChartView
 var crew: Crew
 var clock: GameClock
 var sensors: SensorSuite
@@ -172,6 +173,14 @@ func _build_sources() -> void:
 	chart.area = area
 	chart.sub = sub
 	chart.sensors = sensors
+	if chart_main:
+		chart.data = chart_main.data
+		chart.clock = chart_main.clock
+		chart.main = chart_main.main
+		chart.route = chart_main.route
+		chart.track = chart_main.track
+		chart.reported_ice = chart_main.reported_ice
+		chart.set_chart_scale(26.0)
 	chart.sector_center = sector_center
 	chart.sector_radius = sector_radius
 	chart.rv_point = rv_point

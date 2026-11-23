@@ -272,7 +272,12 @@ func _shoal_check() -> bool:
 	var under := area.seabed_depth(ahead.x, ahead.z)
 	var need := sub.depth + 30.0
 	var land := area.coast_distance(ahead.x, ahead.z) < 0.0
-	var outside := not area.in_area(ahead * 1.0 + f * 1600.0) or ahead.z < area.ice_edge_z(ahead.x) - 400.0
+	var nxt := ahead + f * 1600.0
+	# Patrolling inside the patrol area, the watch keeps to it; on a route the
+	# captain laid it follows the route, and anywhere it stays on the chart.
+	var patrolling := chart == null or chart.route.is_empty()
+	var leaving := patrolling and area.in_area(sub.global_position) and not area.in_area(nxt)
+	var outside := leaving or not area.in_region(nxt + f * 8000.0) or ahead.z < area.ice_edge_z(ahead.x) - 400.0
 	if outside:
 		var home := (patrol.sector_center if patrol else Vector3.ZERO) - sub.global_position
 		sub.ordered_heading = atan2(home.x, -home.z)

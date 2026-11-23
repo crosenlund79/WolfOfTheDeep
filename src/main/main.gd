@@ -72,6 +72,13 @@ var _autosave_t := 0.0
 var _playtime := 0.0
 var _test_vessels: Array[SurfaceShip] = []
 var _load_error := ""
+var route_follow := false
+var _fast_wp := false
+var _track_t := 0.0
+var _ice_warned: Dictionary = {}
+var _pressure_alarm_t := 0.0
+var _depth_band := 0
+var _ice_report_n := 0
 
 var view := View.CINEMATIC
 var started := false
@@ -333,6 +340,8 @@ func _build_ui() -> void:
 	ui.add_child(sonar_ui)
 	chart = ChartView.new()
 	chart.main = self
+	chart.data = ChartData.new(area.geo)
+	chart.clock = clock
 	chart.area = area
 	chart.sub = sub
 	chart.sensors = sensors
@@ -342,6 +351,7 @@ func _build_ui() -> void:
 	ui.add_child(chart)
 	chart.visible = false
 	pilot = ControlRoomPilot.new()
+	pilot.chart_main = chart
 	pilot.sub = sub
 	pilot.crew = crew
 	pilot.clock = clock
@@ -439,6 +449,8 @@ func _connect_signals() -> void:
 		dialogue.say("miller", VOICE_TEXT["vo_miller_torpedo_away"], Dialogue.P.CRITICAL, "vo_miller_torpedo_away"))
 	encounter.target_hit.connect(_on_target_hit)
 	chart.course_ordered.connect(_on_course_ordered)
+	chart.request.connect(_on_chart_request)
+	sub.pressure_event.connect(_on_pressure_event)
 	room.station_selected.connect(_on_station_selected)
 	pilot.request.connect(_on_pilot_request)
 	menu.chosen.connect(_on_menu)
@@ -457,6 +469,7 @@ func _begin_patrol() -> void:
 	in_main_menu = false
 	game_menu.visible = false
 	command_bar.visible = true
+	_ice_report(true)
 	audio.stop_music()
 	set_view(View.CONTROL)
 	sub.set_speed_step(3)
@@ -487,7 +500,10 @@ func _process(delta: float) -> void:
 	if patrol.done:
 		scale = minf(scale, 1.0)
 	var sim := real_dt * scale
-	var steps := maxi(1, ceili(sim / SUBSTEP))
+	# Fine steps at ordinary rates; at high compression one-second steps (as
+	# the headless patrol simulation uses): under ten metres per step even at
+	# flank speed, so no collision is skipped.
+	var steps := maxi(1, ceili(sim / (SUBSTEP if scale <= 25.0 else 1.0)))
 	var h := sim / float(steps)
 	for _i in steps:
 		_sim_step(h)
@@ -495,6 +511,8 @@ func _process(delta: float) -> void:
 	rig.sun_dir = weather.to_sun()
 	rig.advance(real_dt)
 	_update_focus()
+	area.focus_pos = _focus.global_position
+	area.streamer.update_focus(rig.camera.global_position if view in [View.EXTERIOR, View.CINEMATIC, View.TORPEDO_CAM, View.PERISCOPE] else sub.global_position)
 	_update_wakes(real_dt)
 	wake_map.advance()
 	_update_underwater()
@@ -603,7 +621,137 @@ func _navigation(dt: float) -> void:
 	var under := area.seabed_depth(ahead.x, ahead.z) - sub.depth
 	if under < 25.0 and not watch.active and _cd("shoal", 240.0):
 		crew.react("shoal_warning", {"depth": int(maxf(under, 0.0))})
+		clog("NAVIGATION", "Shoaling ahead: about %d m under the keel in %d m. Charted depth there %d m." % [int(maxf(under, 0.0)), int(look), int(area.seabed_depth(ahead.x, ahead.z))], "assessment")
 		_drop_time()
+	_navigate_route()
+	_record_track(dt)
+	_ice_advice()
+
+
+func _navigate_route() -> void:
+	if chart.route.is_empty():
+		route_follow = false
+		return
+	if watch.active or not route_follow:
+		return
+	var wp: Vector3 = chart.route[0]
+	var rel := Vector3(wp.x - sub.global_position.x, 0.0, wp.z - sub.global_position.z)
+	if rel.length() < maxf(250.0, sub.speed * 45.0):
+		chart.route.pop_front()
+		chart.route_changed.emit()
+		clog("NAVIGATION", "Waypoint reached at %s. %d remaining." % [ChartView.latlon(sub.global_position), chart.route.size()])
+		if _fast_wp:
+			_drop_time()
+			hud.event("WAYPOINT REACHED")
+		if chart.route.is_empty():
+			route_follow = false
+			dialogue.say("maya", "Final waypoint, Captain. Holding this course.", Dialogue.P.REPORT)
+		else:
+			dialogue.say("maya", "Waypoint, Captain. Coming to %03d for the next leg." % int(ChartView.leg(sub.global_position, chart.route[0])["brg"]), Dialogue.P.REPORT)
+		return
+	sub.ordered_heading = atan2(rel.x, -rel.z)
+	sub.helm_auto = true
+
+
+func _record_track(dt: float) -> void:
+	_track_t += dt
+	if _track_t >= 300.0:
+		_track_t = 0.0
+		chart.track.append([snappedf(sub.global_position.x, 1.0), snappedf(sub.global_position.z, 1.0)])
+		if chart.track.size() > 2000:
+			chart.track.pop_front()
+
+
+## Ice and clearance advice along the track ahead (the crew advises; the
+## captain decides). Uses only ice the boat knows of: sonar / visual contacts
+## and the latest ice report.
+func _ice_advice() -> void:
+	if not started or sub.speed < 0.5:
+		return
+	var fwd := sub.forward()
+	var look := clampf(sub.speed * 1200.0, 1500.0, 9000.0)
+	var known: Array = []
+	var sp := Vector2(sub.global_position.x, sub.global_position.z)
+	var reach2 := pow(look + 2500.0, 2.0)
+	for c in sensors.contacts:
+		if c.kind == "ICE" and c.status == "TRACKING" and sp.distance_squared_to(Vector2(c.est_pos.x, c.est_pos.z)) < reach2:
+			known.append({"pos": c.est_pos, "r": float(c.berg.get("r", 40.0)), "keel": float(c.berg.get("keel", 60.0)), "id": c.id, "src": "sonar"})
+	for r in chart.reported_ice:
+		var rp: Vector3 = r["pos"]
+		if sp.distance_squared_to(Vector2(rp.x, rp.z)) < reach2:
+			known.append({"pos": rp, "r": float(r["r"]), "keel": float(r["keel"]), "id": String(r["id"]), "src": "report"})
+	for k in known:
+		var rel: Vector3 = (k["pos"] as Vector3) - sub.global_position
+		rel.y = 0.0
+		var along := rel.dot(fwd)
+		var lateral := absf(rel.dot(Vector3(-fwd.z, 0.0, fwd.x)))
+		var corridor := float(k["r"]) * 1.4 + (150.0 if k["src"] == "sonar" else 900.0)
+		if along < 0.0 or along > look or lateral > corridor:
+			continue
+		var sail_top := sub.depth - 9.0
+		var keel := float(k["keel"]) * (1.0 if k["src"] == "sonar" else 1.2)
+		if sail_top - keel > 30.0:
+			continue
+		var id := String(k["id"])
+		if float(_ice_warned.get(id, -1e9)) > clock.seconds - 900.0:
+			continue
+		_ice_warned[id] = clock.seconds
+		var bottom := area.seabed_depth((k["pos"] as Vector3).x, (k["pos"] as Vector3).z)
+		var need := int(ceil((keel + 40.0) / 10.0) * 10.0)
+		var advice := ""
+		if need + 15.0 > bottom - 10.0:
+			advice = "There isn't room under it: the bottom is about %d m there. I recommend we alter course." % int(bottom)
+		elif need > Submarine.SAFE_DEPTH:
+			advice = "Passing under means about %d m, below our safe depth. I'd rather go round." % need
+		else:
+			advice = "Recommend %d m to pass under it, or alter course." % need
+		var where := "%d metres ahead" % int(round(along / 50.0) * 50.0)
+		var who := "maya" if crew.members["maya"].awake else "miller"
+		var src_txt := "from the ice report, position uncertain" if k["src"] == "report" else "sonar estimate"
+		dialogue.say(who, "Ice on our track, Captain, %s. Keel about %d metres (%s). %s" % [where, int(round(float(k["keel"]) / 10.0) * 10), src_txt, advice], Dialogue.P.REPORT)
+		clog("NAVIGATION", "Ice on the track %s, keel est. %d m (%s). %s" % [where, int(round(float(k["keel"]) / 10.0) * 10), src_txt, advice], "assessment", {"pos": k["pos"]})
+		_drop_time()
+		break
+	# Pack ice where we intend to surface.
+	if sub.ordered_depth() < 15.0 and not sub.is_surfaced():
+		var p := sub.global_position + fwd * 300.0
+		if area.geo.ice_cover(p.x, p.z) > 0.45 and _cd("pack_surface", 300.0):
+			dialogue.say("miller", "Captain, there's close pack overhead. We can't surface here; I'd keep her below sixty until we're clear.", Dialogue.P.CRITICAL)
+			clog("NAVIGATION", "Close pack ice overhead: unsafe to surface.", "assessment")
+			_drop_time()
+
+
+## Ice reports arrive with Northern Command's broadcasts: large bergs seen by
+## satellite radar, positions as of the time of the pass (they drift since).
+func _ice_report(note: bool) -> void:
+	var out: Array = []
+	var t_obs := clock.seconds - 3.0 * 3600.0
+	for b in area.bergs:
+		if float(b["r"]) < 45.0 or not bool(b.get("regional", false)):
+			continue
+		var pos: Vector3 = (b["pos"] as Vector3) - (b["vel"] as Vector3) * 3.0 * 3600.0
+		out.append({"pos": pos, "r": float(b["r"]), "keel": float(b["keel"]), "t": t_obs, "id": String(b["id"])})
+	# In place: the table chart in the control room shares this list.
+	chart.reported_ice.clear()
+	chart.reported_ice.append_array(out)
+	_ice_report_n += 1
+	if note:
+		clog("INTEL", "Ice report received: %d large icebergs charted from a satellite radar pass about three hours old. Positions drift; keels are estimates." % out.size(), "assessment", {"source": "Northern Command"})
+
+
+func _on_pressure_event(kind: String, detail: String) -> void:
+	audio.play("sfx_structural_failure" if kind != "leak" else "sfx_ballast_flooding", -4.0)
+	rig.shake(0.5 if kind != "collapse" else 1.5)
+	_alarm_t = 60.0
+	match kind:
+		"collapse":
+			audio.play("sfx_alarm", -2.0)
+			clog("ENGINEERING", "Hull failure at %d m." % int(sub.depth), "confirmed")
+		_:
+			audio.play("sfx_alarm", -8.0)
+			dialogue.say("erik", "Captain! %s She's telling us something down here." % detail, Dialogue.P.CRITICAL)
+			clog("ENGINEERING", "Pressure damage at %d m: %s" % [int(sub.depth), detail], "confirmed")
+	_drop_time()
 
 
 func _plant_reports() -> void:
@@ -623,6 +771,29 @@ func _plant_reports() -> void:
 		crew.react("deep_creak")
 	elif sub.depth < 150.0:
 		_deep_warned = false
+	var band := 0
+	var load := sub.pressure_load()
+	if sub.depth > Submarine.SAFE_DEPTH:
+		band = 1
+	if sub.depth > Submarine.TEST_DEPTH:
+		band = 2
+	if load > 0.8:
+		band = 3
+	if band > _depth_band and started:
+		match band:
+			1:
+				dialogue.say("miller", "Passing two hundred metres, Captain. Below safe depth.", Dialogue.P.REPORT)
+			2:
+				dialogue.say("erik", "We're past test depth, Captain. I can hear her working. Every metre from here costs us.", Dialogue.P.CRITICAL)
+			3:
+				dialogue.say("erik", "She won't take much more! Blow and come up, Captain, now!", Dialogue.P.CRITICAL)
+		clog("ENGINEERING", ["", "Below the safe operating depth (%d m).", "Below test depth (%d m). Hull stress rising.", "Near the hull's limit (%d m). Collapse risk."][band] % int(sub.depth), "confirmed")
+	_depth_band = band
+	if band >= 2:
+		_pressure_alarm_t -= 2.0
+		if _pressure_alarm_t <= 0.0:
+			_pressure_alarm_t = 50.0 if band == 2 else 18.0
+			audio.play("sfx_alarm", -10.0 if band == 2 else -6.0)
 	var diesel := sub.diesels_running and not sub.is_surfaced()
 	if diesel != _was_diesel and not sub.is_surfaced():
 		crew.react("snorkel_on" if diesel else "snorkel_off")
@@ -650,6 +821,11 @@ func _update_alert() -> void:
 		crew.poker_session = false
 		_drop_time()
 	crew.alert = level
+	# Compression never stays above what the situation allows.
+	var cap := time_cap()
+	if clock.level > cap and not asleep:
+		clock.set_level(cap)
+		hud.toast("TIME  x%d" % int(clock.scale()))
 
 
 var _battle := false
@@ -663,9 +839,51 @@ func _cd(key: String, seconds: float) -> bool:
 
 
 func _drop_time() -> void:
-	if clock.level > 0 and not asleep:
+	_fast_wp = false
+	if (clock.level > 0 or clock.custom_scale > 0.0) and not asleep:
 		clock.set_level(0)
 		hud.toast("TIME x1")
+
+
+## Highest compression the situation allows (index into GameClock.LEVELS).
+func time_cap() -> int:
+	if crew.alert >= 2 or encounter.torpedo_running() or sub.flooding > 0.2:
+		return 1
+	if crew.alert == 1 or sub.depth > Submarine.SAFE_DEPTH:
+		return GameClock.LEVELS.find(25.0)
+	return GameClock.LEVELS.size() - 1
+
+
+func _fast_to_waypoint() -> void:
+	if chart.route.is_empty():
+		hud.toast("NO ROUTE  ·  SHIFT+CLICK ON THE CHART TO LAY WAYPOINTS")
+		return
+	if not route_follow and not watch.active:
+		route_follow = true
+		clog("NAVIGATION", "Steering the planned route (%d waypoints)." % chart.route.size())
+	_fast_wp = true
+	var want := GameClock.LEVELS.find(100.0)
+	clock.set_level(mini(want, time_cap()))
+	_fast_wp = true
+	hud.toast("FAST TO NEXT WAYPOINT  ·  TIME x%d  ·  STOPS FOR EVENTS" % int(clock.scale()))
+
+
+func _on_chart_request(action: String) -> void:
+	match action:
+		"follow_route":
+			if chart.route.is_empty():
+				hud.toast("NO ROUTE  ·  SHIFT+CLICK ON THE CHART TO LAY WAYPOINTS")
+				return
+			route_follow = not route_follow
+			if route_follow:
+				_captain_order()
+				route_follow = true
+				dialogue.say("maya", "Steering the route, Captain. %d waypoint%s, %.1f miles." % [chart.route.size(), "" if chart.route.size() == 1 else "s", chart.route_total() / 1852.0], Dialogue.P.REPORT)
+				clog("NAVIGATION", "Steering the planned route (%d waypoints, %.1f nm)." % [chart.route.size(), chart.route_total() / 1852.0])
+			else:
+				_fast_wp = false
+		"next_waypoint":
+			_fast_to_waypoint()
 
 
 # --- ambient world audio (real-time pacing, state-driven) -------------------------
@@ -842,6 +1060,8 @@ func _on_suspicion(ship: SurfaceShip, level: float) -> void:
 
 func _on_message(msg: Dictionary) -> void:
 	var from := String(msg["from"])
+	if from == "NORTHERN COMMAND":
+		_ice_report(true)
 	msg["received_time"] = clock.time_string()
 	clog("COMMUNICATIONS", "Signal from %s: %s" % [from, String(msg["text"])], "confirmed", {"message": String(msg.get("id", ""))})
 	hud.event("MESSAGE  ·  %s  ·  L TO READ" % from)
@@ -1332,6 +1552,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_open_log()
 		KEY_K:
 			contact_list.toggle()
+		KEY_N:
+			_fast_to_waypoint()
 		KEY_F5:
 			save_game("quick")
 		KEY_F10:
@@ -1360,7 +1582,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _set_time_level(l: int) -> void:
-	var cap := GameClock.LEVELS.size() - 1 if crew.alert < 2 else 1
+	var cap := time_cap()
 	var before := clock.level
 	clock.set_level(mini(l, cap))
 	if clock.level != before:
@@ -1379,6 +1601,7 @@ func _captain_order() -> void:
 
 func _change_course(deg: float) -> void:
 	_captain_order()
+	route_follow = false
 	sub.ordered_heading = wrapf(sub.ordered_heading + deg_to_rad(deg), -PI, PI)
 	sub.helm_auto = true
 	if _cd("course_voice", 3.0):
@@ -1388,6 +1611,7 @@ func _change_course(deg: float) -> void:
 
 func _on_course_ordered(heading: float) -> void:
 	_captain_order()
+	route_follow = false
 	sub.ordered_heading = heading
 	sub.helm_auto = true
 	crew.react("course_order", {"course": "%03d" % (int(round(fposmod(rad_to_deg(heading), 360.0))) % 360)})
@@ -1398,6 +1622,14 @@ func _set_depth(mode: int) -> void:
 	sub.set_depth_mode(mode)
 	if sub.depth_mode == before:
 		return
+	var want := float(Submarine.DEPTH_MODES[sub.depth_mode]["depth"])
+	if want > Submarine.SAFE_DEPTH:
+		clog("DECISIONS", "Ordered %d m, below the safe operating depth of %d m." % [int(want), int(Submarine.SAFE_DEPTH)])
+		var bottom := area.seabed_depth(sub.global_position.x, sub.global_position.z)
+		var txt := "Captain, %d metres is past our safe depth. She'll take it for a while, but the longer we stay the more it costs her%s." % [int(want), (", and with the hull as it is I'd not stay long" if sub.hull < 85.0 else "")]
+		if bottom < want + 15.0:
+			txt += " And the bottom's at %d metres here." % int(bottom)
+		get_tree().create_timer(1.4).timeout.connect(func() -> void: dialogue.say("erik", txt, Dialogue.P.CRITICAL))
 	if before == 0 and sub.depth_mode > 0:
 		crew.react("dive")
 	elif sub.depth_mode == 0:
@@ -1868,7 +2100,8 @@ func gather_state(slot: String) -> Dictionary:
 		"encounter": encounter.save_state(),
 		"weather": {"condition": weather.condition},
 		"log": captain_log.save_state(),
-		"nav": {"route": rt, "dr_error": _dr_error, "planned_knots": chart.planned_knots},
+		"nav": {"route": rt, "dr_error": _dr_error, "planned_knots": chart.planned_knots, "follow": route_follow, "track": chart.track,
+			"ice": chart.reported_ice.map(func(r: Dictionary) -> Dictionary: return {"pos": SaveSystem.v3(r["pos"]), "r": r["r"], "keel": r["keel"], "t": r["t"], "id": r["id"]})},
 		"main": {"view": int(view), "battle": _battle, "playtime": _playtime, "unlimited": unlimited_weapons, "invulnerable": sub.invulnerable},
 	}
 
@@ -1907,6 +2140,12 @@ func apply_state(d: Dictionary) -> void:
 		chart.route.append(SaveSystem.to_v3(w))
 	_dr_error = float(nav.get("dr_error", _dr_error))
 	chart.planned_knots = float(nav.get("planned_knots", chart.planned_knots))
+	route_follow = bool(nav.get("follow", false))
+	chart.track.clear()
+	chart.track.append_array(nav.get("track", []))
+	chart.reported_ice.clear()
+	for r in nav.get("ice", []):
+		chart.reported_ice.append({"pos": SaveSystem.to_v3(r["pos"]), "r": float(r["r"]), "keel": float(r["keel"]), "t": float(r["t"]), "id": String(r["id"])})
 	var m: Dictionary = d.get("main", {})
 	_battle = bool(m.get("battle", false))
 	_playtime = float(m.get("playtime", 0.0))
@@ -1956,7 +2195,10 @@ func _on_bar_request(id: String) -> void:
 
 
 func time_label() -> String:
-	return str(int(clock.scale()))
+	var t := str(int(clock.scale()))
+	if _fast_wp:
+		t += " ▸WP"
+	return t
 
 
 func under_keel() -> float:
@@ -1973,7 +2215,7 @@ func status_flags() -> String:
 		f.append("BATTLE STATIONS")
 	if sub.diesels_running and not sub.is_surfaced():
 		f.append("SNORKELLING")
-	if sub.depth > Submarine.TEST_DEPTH:
+	if sub.depth > Submarine.SAFE_DEPTH:
 		f.append("BELOW SAFE DEPTH")
 	if sub.flooding > 0.05:
 		f.append("FLOODING")
@@ -2135,7 +2377,9 @@ func dev_hazard(what: String) -> void:
 # --- capture / headless simulation (development aids) ----------------------------------
 # --capture=dir --shots=view:frames:tokens,...   tokens joined with '+':
 #   h=HH.H (clock hour), cond=fog, pos=x;z, hdg=deg, depth=mode, scope, yaw=rad,
-#   brg=deg (periscope), aim=vessel_role, poker, log, orders, rest, sleep
+#   brg=deg (periscope), aim=vessel_role, poker, log, orders, rest, sleep,
+#   mpp=chart metres per pixel, cc=x;z (chart centre), wp=x;z;x;z... (route),
+#   lowlight (contact scheme)
 # --sim-hours=N  runs the patrol headless with Miller on watch and prints the log.
 
 func _parse_args() -> void:
@@ -2248,6 +2492,21 @@ func _begin_shot() -> void:
 			"sim":
 				for _i in int(float(kv[1]) / 0.5):
 					_sim_step(0.5)
+			"mpp":
+				chart.set_chart_scale(float(kv[1]))
+			"cc":
+				var cxz := kv[1].split(";")
+				chart._follow = false
+				chart._center = Vector2(float(cxz[0]), float(cxz[1]))
+			"wp":
+				var wv := kv[1].split(";")
+				chart.route.clear()
+				for wi in range(0, wv.size() - 1, 2):
+					chart.route.append(Vector3(float(wv[wi]), 0.0, float(wv[wi + 1])))
+				chart.route_changed.emit()
+			"lowlight":
+				Settings.ensure_loaded()
+				Settings.values["contact_scheme"] = "low_light"     # this run only (not saved)
 	set_view(v as View)
 	for tok in tokens:
 		if tok.begins_with("cr="):
@@ -2295,6 +2554,9 @@ func _begin_shot() -> void:
 func _capture_step() -> void:
 	_capture_frames -= 1
 	if _capture_frames > 0:
+		return
+	# Wait (within reason) for streamed terrain and chart detail.
+	if (not area.streamer.idle() or (chart.visible and chart.data.busy())) and _capture_frames > -900:
 		return
 	var spec: PackedStringArray = _capture.pop_front()
 	await RenderingServer.frame_post_draw
