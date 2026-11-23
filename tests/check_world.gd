@@ -364,9 +364,9 @@ func _check_grounding_at_speed() -> void:
 	sub.damaged.connect(on_dmg)
 	for i in 400:
 		main.call("_process", 0.1)
-		if main.clock.level == 0 and not dropped:
+		if main.clock.level == 0:
 			dropped = true
-			# The captain ignores the advice.
+			# The captain ignores the advice (and any other reason to slow down).
 			main.clock.set_level(GameClock.LEVELS.size() - 1)
 		for p in sub.hull_points():
 			var pp: Vector3 = p

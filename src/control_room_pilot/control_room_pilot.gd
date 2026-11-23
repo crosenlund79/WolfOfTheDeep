@@ -180,6 +180,8 @@ func _build_sources() -> void:
 		chart.route = chart_main.route
 		chart.track = chart_main.track
 		chart.reported_ice = chart_main.reported_ice
+		chart.aircraft_marks = chart_main.aircraft_marks
+		chart.intel_marks = chart_main.intel_marks
 		chart.set_chart_scale(26.0)
 	chart.sector_center = sector_center
 	chart.sector_radius = sector_radius

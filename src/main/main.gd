@@ -109,7 +109,14 @@ var _last_view_loc := "control"
 
 var _sub_trail: WakeTrail
 var _mast_trail: WakeTrail
-var _ship_trails: Array[WakeTrail] = []
+var _trail_of: Dictionary = {}          # ship -> WakeTrail
+var intel: IntelDB
+var traffic: WorldTraffic
+var reports: ReportFeed
+var intel_view: IntelView
+var _bda: Dictionary = {}               # ship uid -> damage assessment evidence
+var _searching: Dictionary = {}         # ship uid -> true while a commander searches for us
+var _fate_rng := RandomNumberGenerator.new()
 var _focus := Node3D.new()
 var _lens: ColorRect
 var _lens_mat: ShaderMaterial
@@ -271,8 +278,40 @@ func _ready() -> void:
 	watch.clock = clock
 	add_child(watch)
 
+	# The wider world: intelligence, regional traffic and aircraft, reports.
+	intel = IntelDB.new()
+	_fate_rng.seed = 6262
+	traffic = WorldTraffic.new()
+	traffic.name = "Traffic"
+	traffic.world = self
+	traffic.ocean = ocean
+	traffic.area = area
+	traffic.sub = sub
+	traffic.clock = clock
+	traffic.weather = weather
+	traffic.intel = intel
+	traffic.vessels = vessels
+	add_child(traffic)
+	traffic.setup()
+	reports = ReportFeed.new()
+	reports.name = "Reports"
+	reports.clock = clock
+	reports.patrol = patrol
+	reports.intel = intel
+	reports.traffic = traffic
+	add_child(reports)
+	reports.setup()
+	for v in vessels:
+		var sv := v as SurfaceShip
+		if sv.kind == SurfaceShip.Kind.PATROL or sv.kind == SurfaceShip.Kind.FRIGATE:
+			sv.commander = intel.assign_commander(sv.uid, false)
+		_watch_ship(sv)
+	traffic.vessel_materialised.connect(_on_vessel_materialised)
+	traffic.aircraft_event.connect(_on_aircraft_event)
+
 	_build_ui()
 	watch.chart = chart
+
 	_build_crew_figures()
 	_connect_signals()
 	room.setup_screens(rig, ocean, ships)
@@ -339,6 +378,7 @@ func _build_ui() -> void:
 	sonar_ui.crew = crew
 	ui.add_child(sonar_ui)
 	chart = ChartView.new()
+	chart.aircraft_marks = traffic.marks       # shared with the table chart below
 	chart.main = self
 	chart.data = ChartData.new(area.geo)
 	chart.clock = clock
@@ -393,6 +433,16 @@ func _build_ui() -> void:
 		chart.focus_on(p))
 	contact_list.log_for.connect(func(id: String) -> void: log_view.open("log", id))
 	ui.add_child(contact_list)
+	intel_view = IntelView.new()
+	intel_view.intel = intel
+	intel_view.clock = clock
+	intel_view.sensors = sensors
+	intel_view.sub = sub
+	intel_view.show_on_chart.connect(func(p: Vector3) -> void:
+		intel_view.visible = false
+		set_view(View.CHART)
+		chart.focus_on(p))
+	ui.add_child(intel_view)
 	log_view = LogView.new()
 	log_view.main = self
 	log_view.clog = captain_log
@@ -550,6 +600,8 @@ func _sim_step(h: float) -> void:
 		(v as SurfaceShip).advance(h, sub.position)
 		(v as SurfaceShip).set_night(night)
 	encounter.advance(h, view == View.PERISCOPE)
+	traffic.advance(h)
+	reports.advance(h)
 	_collide()
 	var operator := crew.role_holder("SONAR")
 	sensors.sonar_manned = operator != null
@@ -585,6 +637,7 @@ func _slow_tick(dt: float) -> void:
 		elif d > 2500.0:
 			_passed.erase(s)
 	_navigation(dt)
+	_world_intel()
 	_plant_reports()
 	_update_alert()
 	if weather.condition != _last_condition:
@@ -1046,7 +1099,10 @@ func _on_suspicion(ship: SurfaceShip, level: float) -> void:
 	if level > 0.6 and ship.behavior != "investigate" and ship.state == SurfaceShip.State.SAILING and (ship.kind == SurfaceShip.Kind.PATROL or ship.kind == SurfaceShip.Kind.FRIGATE):
 		ship.behavior = "investigate"
 		ship.datum = sub.global_position + Vector3(randf_range(-900.0, 900.0), 0.0, randf_range(-900.0, 900.0))
-		ship.set("_behavior_t", 2400.0)
+		ship.set("_behavior_t", 2400.0 * ship.persistence())
+		_searching[ship.uid] = true
+		if not ship.commander.is_empty():
+			intel.remember(String(ship.commander["id"]), "searched", clock.seconds)
 		var c := sensors.contact_for(ship)
 		if c and c.status == "TRACKING":
 			crew.react("detected_risk", {"id": c.id}, Dialogue.P.CRITICAL)
@@ -1055,10 +1111,18 @@ func _on_suspicion(ship: SurfaceShip, level: float) -> void:
 			_wake("A warship is searching near us.")
 			_drop_time()
 	if level >= 1.0:
+		if not patrol.counter_detected:
+			intel.captain_event("detected", clock.seconds, "Probably detected by a warship.")
+			if not ship.commander.is_empty():
+				intel.remember(String(ship.commander["id"]), "detected", clock.seconds)
+			traffic.incident(sub.global_position, 0.25)
 		patrol.mark_detected("a patrol vessel")
 
 
 func _on_message(msg: Dictionary) -> void:
+	if msg.has("report"):
+		_on_report(msg["report"])
+		return
 	var from := String(msg["from"])
 	if from == "NORTHERN COMMAND":
 		_ice_report(true)
@@ -1089,12 +1153,269 @@ func _on_patrol_finished(report: Dictionary) -> void:
 
 func _on_target_hit(ship: SurfaceShip) -> void:
 	_drop_time()
+	var ev: Dictionary = _bda.get(ship.uid, {})
+	var c := sensors.contact_for(ship)
+	if ev.is_empty():
+		ev = BattleDamage.new_evidence(c.id if c else "", clock.seconds)
+		_bda[ship.uid] = ev
+	ev["hits"] = int(ev["hits"]) + 1
+	_bda_update(ship)
+	if not ship.commander.is_empty():
+		intel.remember(String(ship.commander["id"]), "attacked", clock.seconds)
+	intel.captain_event("attack", clock.seconds, "Torpedo attack on %s." % (c.label() if c else "a contact"))
+	traffic.incident(ship.global_position, 0.5)
 	patrol.flags["sank_" + (ship.vessel_name if ship.vessel_name != "" else "contact")] = true
 	get_tree().create_timer(4.0).timeout.connect(func() -> void:
 		dialogue.say("miller", VOICE_TEXT["vo_miller_torpedo_impact"], Dialogue.P.CRITICAL, "vo_miller_torpedo_impact"))
 	if view == View.TORPEDO_CAM:
 		rig.watch_target = ship
 		rig.set_mode(CameraRig.Mode.WATCH)
+
+
+# --- the wider world: intelligence, traffic, aircraft, damage assessment ---------------
+
+func open_intel() -> void:
+	intel_view.toggle()
+
+
+func _watch_ship(s: SurfaceShip) -> void:
+	encounter.watch_ship(s)
+	if not s.sunk.is_connected(_on_ship_sunk):
+		s.sunk.connect(_on_ship_sunk)
+		s.secondary_blast.connect(_on_ship_secondary)
+
+
+func _on_vessel_materialised(s: SurfaceShip) -> void:
+	if not s.pinged.is_connected(_on_pinged):
+		s.pinged.connect(_on_pinged)
+		s.suspicion_changed.connect(_on_suspicion)
+	_watch_ship(s)
+
+
+func _ship_by_uid(uid: String) -> SurfaceShip:
+	var t := traffic.node_for(uid)
+	if t:
+		return t
+	for v in vessels:
+		if (v as SurfaceShip).uid == uid:
+			return v as SurfaceShip
+	return null
+
+
+## The unit record for a contact the crew has classified or identified: only
+## what the sensors support goes into it.
+func _unit_from_contact(c: Contact) -> Dictionary:
+	if c.kind != "VESSEL" or c.vessel == null:
+		return {}
+	var v := c.vessel
+	var now := clock.seconds
+	var cls := ""
+	var navy := "UNKNOWN"
+	match c.classification:
+		"MERCHANT":
+			cls = "merchant"
+			navy = "CIVIL"
+		"FISHING":
+			cls = "trawler"
+			navy = "CIVIL"
+		"RESEARCH":
+			cls = "research"
+			navy = "CIVIL"
+		"WARSHIP":
+			if c.identified_name.begins_with("KV "):
+				cls = "vakt"
+				navy = "HOME"
+			else:
+				cls = "boreas" if v.kind == SurfaceShip.Kind.FRIGATE else "grim"
+				navy = "FOREIGN (assessed)" if not c.sources.has("ais") else "UNKNOWN"
+	if cls == "" and c.ais.has("type"):
+		# AIS states what she is (as her owners declare it).
+		match String(c.ais["type"]):
+			"CARGO":
+				cls = "merchant"
+			"FISHING":
+				cls = "trawler"
+			"RESEARCH / SURVEY":
+				cls = "research"
+			"LAW ENFORCEMENT":
+				cls = "vakt" if String(c.ais.get("name", "")).begins_with("KV ") else ""
+		navy = "HOME" if cls == "vakt" else "CIVIL"
+	var conf := "MEDIUM" if c.sources.has("visual") or c.sources.has("ais") else "LOW"
+	var desig := c.identified_name if c.identified_name != "" else c.label().capitalize()
+	var u := intel.unit_for(v.uid, now, {"designation": desig, "class": cls, "class_conf": conf, "navy": navy, "confidence": conf})
+	if not (u["contacts"] as Array).has(c.id):
+		(u["contacts"] as Array).append(c.id)
+		var how := "sonar" if c.sources.has("sonar") else ("visual" if c.sources.has("visual") else "AIS")
+		intel.note(u, now, "Held as contact %s (%s): %s." % [c.id, how, c.label().to_lower()], "own sensors")
+	if cls != "" and IntelDB.conf_rank(conf) >= IntelDB.conf_rank(String(u["class_conf"])):
+		u["class"] = cls
+		u["class_conf"] = conf
+	if String(u["navy"]) == "UNKNOWN" and navy != "UNKNOWN":
+		u["navy"] = navy
+	if c.identified_name != "" and String(u["name"]) == "":
+		u["name"] = c.identified_name
+		u["designation"] = c.identified_name
+	intel.raise_conf(u, "confidence", conf)
+	if c.range_err < 0.3:
+		intel.set_position(u, now, Vector2(c.est_pos.x, c.est_pos.z), c.range_err * c.range_est)
+		u["last_update"] = now
+	return u
+
+
+## Every couple of seconds: damage assessment, searches abandoned, units from
+## contacts, reported units on the chart.
+func _world_intel() -> void:
+	var now := clock.seconds
+	var eyes_up := sub.periscope_state() == Submarine.Scope.CLEAR or sub.is_surfaced()
+	for uid in _bda.keys():
+		var ship := _ship_by_uid(String(uid))
+		if ship == null:
+			continue
+		var ev: Dictionary = _bda[uid]
+		var c := sensors.contact_for(ship)
+		var held := c != null and c.status == "TRACKING" and now - c.last_time < 12.0
+		var eyes := held and eyes_up and c.sources.has("visual")
+		var ears := held and sensors.sonar_manned and c.sources.has("sonar") and not sub.is_surfaced()
+		if eyes or ears:
+			BattleDamage.observe(ev, ship.apparent(), eyes, ears, now)
+			_bda_update(ship)
+	for v in vessels:
+		var s := v as SurfaceShip
+		if _searching.has(s.uid) and s.behavior != "investigate":
+			_searching.erase(s.uid)
+			if s.suspicion < 1.0 and s.state == SurfaceShip.State.SAILING:
+				if not s.commander.is_empty():
+					intel.remember(String(s.commander["id"]), "evaded", now)
+				intel.captain_event("evaded", now, "A warship's search was evaded.")
+				var c2 := sensors.contact_for(s)
+				clog("CONTACTS", "The warship%s appears to have given up her search." % ((" " + c2.id) if c2 else ""), "assessment", {"contact": c2.id if c2 else ""})
+	for c3 in sensors.contacts:
+		if c3.kind == "VESSEL" and c3.status == "TRACKING" and (c3.class_progress >= 1.0 or c3.identified_name != ""):
+			_unit_from_contact(c3)
+	# Units known from reports (and not held by our own sensors) on the chart.
+	chart.intel_marks.clear()
+	for u in intel.units.values():
+		var lp: Array = u["last_pos"]
+		if lp.size() != 2 or String(u["status"]) in ["SUNK", "LEFT AREA"]:
+			continue
+		var held2 := false
+		for cid in u["contacts"]:
+			for c4 in sensors.contacts:
+				if c4.id == String(cid) and c4.status == "TRACKING":
+					held2 = true
+		if held2:
+			continue
+		var age := now - float(u["last_pos_t"])
+		if age > 48.0 * 3600.0:
+			continue
+		var unc := float(u["last_pos_unc"]) + age * 12.0 * 0.5144
+		var col := Color(0.8, 0.2, 0.15) if String(u["navy"]).begins_with("FOREIGN") else Color(0.35, 0.4, 0.45)
+		chart.intel_marks.append({"pos": Vector3(float(lp[0]), 0.0, float(lp[1])), "unc": unc, "color": col,
+			"label": "%s %s · %s" % [String(u["id"]), String(u["designation"]).substr(0, 26), ("rep. %d h" % int(age / 3600.0)) if age > 3600.0 else "rep."]})
+	if intel_view.visible and int(now) % 10 == 0:
+		intel_view.refresh()
+
+
+func _bda_update(ship: SurfaceShip) -> void:
+	var ev: Dictionary = _bda.get(ship.uid, {})
+	if ev.is_empty():
+		return
+	var a := BattleDamage.assess(ev)
+	if String(a["level"]) == String(ev["level"]) and String(a["conf"]) == String(ev["conf"]):
+		return
+	ev["level"] = a["level"]
+	ev["conf"] = a["conf"]
+	var cid := String(ev["contact"])
+	var u := intel.unit_for(ship.uid, clock.seconds, {"designation": "Contact %s" % cid})
+	u["status"] = String(a["level"])
+	u["status_conf"] = String(a["conf"])
+	intel.note(u, clock.seconds, "Damage assessment: " + String(a["text"]), "fire control")
+	clog("COMBAT", "Damage assessment, %s: %s" % [cid if cid != "" else "target", String(a["text"])], "confirmed" if a["conf"] == "HIGH" else "assessment", {"contact": cid, "dossier": String(u["id"])})
+	if started and not asleep:
+		hud.event("DAMAGE ASSESSMENT  ·  %s  ·  %s" % [cid, String(a["level"])])
+
+
+func _on_ship_secondary(ship: SurfaceShip, _pos: Vector3) -> void:
+	if _bda.has(ship.uid):
+		var ev: Dictionary = _bda[ship.uid]
+		ev["secondary"] = int(ev["secondary"]) + 1
+		_bda_update(ship)
+
+
+## A ship we hit has gone down: her commander's fate, and the world hears of it.
+func _on_ship_sunk(ship: SurfaceShip) -> void:
+	if not _bda.has(ship.uid):
+		return
+	var now := clock.seconds
+	var cid := String(ship.commander.get("id", ""))
+	var survived := true
+	if cid != "":
+		survived = _fate_rng.randf() < (0.65 if ship.sink_rate < 0.3 else 0.3)
+		if survived:
+			intel.remember(cid, "lost_ship", now)
+			intel.release_commander(ship.uid)
+		else:
+			intel.commander_died(cid, now)
+	var c := sensors.contact_for(ship)
+	var foreign := (ship.kind == SurfaceShip.Kind.PATROL or ship.kind == SurfaceShip.Kind.FRIGATE) and not ship.ais_on
+	var desig := ship.vessel_name if ship.vessel_name != "" else ("A foreign warship" if foreign else (c.label().capitalize() if c else "A vessel"))
+	reports.on_loss(ship.uid, desig, ship.global_position, now, "FOREIGN" if foreign else "CIVIL", cid, survived)
+	traffic.incident(ship.global_position, 0.4)
+
+
+func _on_report(r: Dictionary) -> void:
+	var u := intel.ingest(r, clock.seconds)
+	var conflicts: Array = r["conflicts"]
+	var opts := {"source": "%s (%s)" % [String(r["source"]), String(r["grade"])], "message": String(r["id"])}
+	if not u.is_empty():
+		opts["dossier"] = String(u["id"])
+	var p: Array = r["pos"]
+	if p.size() == 2:
+		opts["pos"] = Vector3(float(p[0]), 0.0, float(p[1]))
+	var txt := "%s (%s, %s): %s Observed %s; event %s; received %s." % [String(r["id"]), String(r["source"]).to_lower(), String(r["grade"]),
+		String(r["summary"]), ReportFeed.stamp(float(r["t_obs"])), ReportFeed.stamp(float(r["t_event"])), ReportFeed.stamp(clock.seconds)]
+	if not conflicts.is_empty():
+		txt += " Conflicts with %s; both kept." % ", ".join(conflicts)
+	clog("INTEL", txt, "unresolved" if not conflicts.is_empty() else "assessment", opts)
+	var subj := String(r.get("subject", ""))
+	if _bda.has(subj) and String(r.get("status", "")) == "SUNK":
+		var ev: Dictionary = _bda[subj]
+		ev["sunk_report"] = true
+		ev["survivors"] = int(r.get("survivors", -1))
+		var ship := _ship_by_uid(subj)
+		if ship:
+			_bda_update(ship)
+	if started and not asleep:
+		hud.event("INTELLIGENCE  ·  %s  ·  I TO READ" % String(r["id"]))
+	if intel_view.visible:
+		intel_view.refresh()
+
+
+func _on_aircraft_event(kind: String, f: Dictionary, detail: String) -> void:
+	var cls := String(f["class"])
+	var d := Vector2(float(f["pos"][0]) - sub.global_position.x, float(f["pos"][1]) - sub.global_position.z).length()
+	match kind:
+		"detected_us":
+			intel.captain_event("detected", clock.seconds, "Probably detected by a patrol aircraft.")
+			patrol.mark_detected("a patrol aircraft")
+		"new_esm":
+			if cls == "airliner":
+				return
+			var what := "airborne search radar, maritime patrol type (foreign, probable)" if cls == "heron" else "airborne search radar, probably our own patrol aircraft"
+			clog("CONTACTS", "ESM: %s, bearing %s." % [what, detail], "assessment", {"source": "ESM"})
+			if cls == "heron":
+				if asleep:
+					if d < 60000.0:
+						_wake("Aircraft radar on the ESM, bearing %s. Foreign patrol aircraft." % detail)
+				elif _cd("esm_mpa", 300.0):
+					dialogue.say("freja", "Captain, ESM: airborne search radar bearing %s, patrol aircraft by the signature. Recommend masts down." % detail, Dialogue.P.CRITICAL)
+					_drop_time()
+		"new_visual":
+			var what2: String = {"heron": "maritime patrol aircraft, foreign", "skua": "our own patrol aircraft", "airliner": "airliner, high"}.get(cls, "aircraft")
+			clog("CONTACTS", "Aircraft sighted, bearing %s: %s." % [detail, what2], "confirmed", {"source": "visual"})
+			if cls == "heron" and not asleep and _cd("air_vis", 300.0):
+				dialogue.say("miller", "Aircraft, bearing %s, low. Patrol type, not one of ours." % detail, Dialogue.P.CRITICAL)
+				_drop_time()
 
 
 func _on_pd_reached() -> void:
@@ -1354,18 +1675,19 @@ func _update_wakes(dt: float) -> void:
 		mast_surface = clampf(head.y + 1.5, 0.0, 1.0) * clampf(1.0 - (sub.depth - 12.0) / 4.0, 0.0, 1.0)
 	_mast_trail.source = sub.get_node("Body/Mast_photonics") as Node3D
 	_mast_trail.advance(dt, sub.speed, mast_surface)
-	for i in ships.size():
-		var s := ships[i] as SurfaceShip
-		if i >= _ship_trails.size():
-			var t := WakeTrail.new()
+	for v in ships:
+		var s := v as SurfaceShip
+		var t: WakeTrail = _trail_of.get(s)
+		if t == null:
+			t = WakeTrail.new()
 			t.source = s
 			t.beam = s.beam
 			t.length_ahead = s.length * 0.5
 			t.spacing = 10.0
 			t.intensity = 1.0
 			wake_map.add_trail(t)
-			_ship_trails.append(t)
-		_ship_trails[i].advance(dt, s.speed, 0.0 if s.submerged else 1.0)
+			_trail_of[s] = t
+		t.advance(dt, 0.0 if s.far else s.speed, 0.0 if (s.submerged or s.far) else 1.0)
 
 
 func _camera_depth() -> float:
@@ -1552,6 +1874,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_open_log()
 		KEY_K:
 			contact_list.toggle()
+		KEY_I:
+			open_intel()
 		KEY_N:
 			_fast_to_waypoint()
 		KEY_F5:
@@ -1982,7 +2306,7 @@ func _on_poker_finished(summary: String) -> void:
 # --- menus, settings, saving -------------------------------------------------------------
 
 func _close_overlay() -> bool:
-	for o in [dev_panel, log_view, contact_list]:
+	for o in [dev_panel, log_view, contact_list, intel_view]:
 		if (o as Control).visible:
 			(o as Control).visible = false
 			return true
@@ -2077,7 +2401,7 @@ func _autosave(_why: String) -> void:
 func gather_state(slot: String) -> Dictionary:
 	var vs: Array = []
 	for v in vessels:
-		if not (v as SurfaceShip).uid.begins_with("test_"):
+		if not (v as SurfaceShip).uid.begins_with("test_") and traffic.node_for((v as SurfaceShip).uid) == null:
 			vs.append((v as SurfaceShip).save_state())
 	var rt: Array = []
 	for w in chart.route:
@@ -2100,6 +2424,11 @@ func gather_state(slot: String) -> Dictionary:
 		"encounter": encounter.save_state(),
 		"weather": {"condition": weather.condition},
 		"log": captain_log.save_state(),
+		"intel": intel.save_state(),
+		"traffic": traffic.save_state(),
+		"reports": reports.save_state(),
+		"bda": _bda.duplicate(true),
+		"searching": _searching.duplicate(),
 		"nav": {"route": rt, "dr_error": _dr_error, "planned_knots": chart.planned_knots, "follow": route_follow, "track": chart.track,
 			"ice": chart.reported_ice.map(func(r: Dictionary) -> Dictionary: return {"pos": SaveSystem.v3(r["pos"]), "r": r["r"], "keel": r["keel"], "t": r["t"], "id": r["id"]})},
 		"main": {"view": int(view), "battle": _battle, "playtime": _playtime, "unlimited": unlimited_weapons, "invulnerable": sub.invulnerable},
@@ -2125,6 +2454,18 @@ func apply_state(d: Dictionary) -> void:
 		var s: SurfaceShip = by_uid.get(String(vd.get("uid", "")))
 		if s:
 			s.load_state(vd)
+	intel.load_state(d.get("intel", {}))
+	traffic.load_state(d.get("traffic", {}))
+	reports.load_state(d.get("reports", {}))
+	for v2 in vessels:
+		var sv := v2 as SurfaceShip
+		sv.commander = intel.commander_of(sv.uid)
+	var bd: Variant = d.get("bda")
+	if bd is Dictionary:
+		_bda = bd
+	var se: Variant = d.get("searching")
+	if se is Dictionary:
+		_searching = se
 	sub.load_state(d.get("sub", {}))
 	weather.set_condition(String((d.get("weather", {}) as Dictionary).get("condition", weather.condition)))
 	sensors.load_state(d.get("sensors", {}))
@@ -2379,7 +2720,7 @@ func dev_hazard(what: String) -> void:
 #   h=HH.H (clock hour), cond=fog, pos=x;z, hdg=deg, depth=mode, scope, yaw=rad,
 #   brg=deg (periscope), aim=vessel_role, poker, log, orders, rest, sleep,
 #   mpp=chart metres per pixel, cc=x;z (chart centre), wp=x;z;x;z... (route),
-#   lowlight (contact scheme)
+#   lowlight (contact scheme), intelview, itab=units|commanders|classes|reports
 # --sim-hours=N  runs the patrol headless with Miller on watch and prints the log.
 
 func _parse_args() -> void:
@@ -2447,7 +2788,7 @@ func _run_simulation() -> void:
 func _begin_shot() -> void:
 	game_menu.visible = false
 	in_main_menu = false
-	for o in [dev_panel, log_view, contact_list, hud.pause_menu]:
+	for o in [dev_panel, log_view, contact_list, intel_view, hud.pause_menu]:
 		(o as Control).visible = false
 	var spec: PackedStringArray = _capture[0]
 	var v := int(spec[0])
@@ -2504,6 +2845,9 @@ func _begin_shot() -> void:
 				for wi in range(0, wv.size() - 1, 2):
 					chart.route.append(Vector3(float(wv[wi]), 0.0, float(wv[wi + 1])))
 				chart.route_changed.emit()
+			"itab":
+				intel_view.tab = kv[1]
+				intel_view.selected = ""
 			"lowlight":
 				Settings.ensure_loaded()
 				Settings.values["contact_scheme"] = "low_light"     # this run only (not saved)
@@ -2523,6 +2867,9 @@ func _begin_shot() -> void:
 				contact_list.refresh()
 			"logview":
 				_open_log()
+			"intelview":
+				intel_view.visible = true
+				intel_view.refresh()
 			"pausemenu":
 				hud.pause_menu.has_campaign = true
 				hud.pause_menu.open("pause")

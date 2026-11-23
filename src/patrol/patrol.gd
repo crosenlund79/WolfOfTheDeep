@@ -51,8 +51,10 @@ func log_entry(text: String) -> void:
 	logged.emit(text)
 
 
-func queue_message(id: String, at: float, from: String, text: String) -> void:
-	pending.append({"id": id, "at": at, "from": from, "text": text})
+func queue_message(id: String, at: float, from: String, text: String, extra: Dictionary = {}) -> void:
+	var m := {"id": id, "at": at, "from": from, "text": text}
+	m.merge(extra)
+	pending.append(m)
 
 
 func objective(id: String) -> Dictionary:

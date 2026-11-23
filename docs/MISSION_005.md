@@ -63,6 +63,7 @@ Sounds can be replaced by dropping files into the `custom/audio/` folder next to
 | **B** | Emergency blow (from 40 m or deeper) |
 | **Tab** | Orders to the crew |
 | **K** | Contact list |
+| **I** | Naval intelligence: units, commanders, class library, reports, your reputation |
 | **L** | Captain's Log, orders, signals, watch report |
 | **N** | Fast to the next waypoint |
 | **+ / −** | Time compression (×1, ×2, ×5, ×10, ×25, ×50, ×100, ×250), also on the command bar |
@@ -173,6 +174,75 @@ The table keeps the keyboard while it is open.
   - Far beyond its limit, the hull fails completely.
 - **Time compression** is limited while you are deep.
 
+## The living world
+
+**Traffic.** Ships go about their business across the region:
+
+- merchant ships on the shipping lanes;
+- trawlers working the banks;
+- the coast guard on fishery patrol;
+- a research ship surveying the ridge;
+- foreign warships on deployment.
+
+Each is always somewhere real. They come into your sensors when you are within reach and leave the picture when you are far away. Foreign units come and go: a deployment ends, and days later a ship returns, perhaps under a different commander.
+
+**Aircraft.**
+
+| What | How you meet it |
+|---|---|
+| Maritime patrol aircraft, ours and foreign | On patrols |
+| Airliners | On polar routes |
+
+You know them only through your own senses:
+
+- **ESM, with a mast up:** a bearing on their radar, drawn as a line on the chart (the range is a guess).
+- **A sighting, at the periscope or on the bridge:** a position.
+- **Afterwards:** a last known position that fades.
+
+A foreign patrol aircraft can find a mast or a surfaced boat. Keep the masts down when its radar is near.
+
+**Reports arrive late.**
+
+- Intelligence reports come with Northern Command's six-hourly broadcasts, and only with a mast up.
+- Sources: patrol aircraft sightings, analysts, signals intercepts, rescue coordination and the media.
+- Each one states:
+  - its source grade and confidence;
+  - when the event happened, when it was observed, when it was sent and when you received it.
+- Reports can be wrong. When two disagree, both are kept and flagged; neither is assumed right.
+- They go into the Captain's Log under intelligence and into the dossiers. Units known only from reports appear on the chart with their age and a circle of doubt.
+
+**Naval intelligence (I).**
+
+- **Units** you have met or been told about, with:
+  - class and navy;
+  - status and commander;
+  - last position and history.
+  - Each detail carries its own confidence.
+- **Two separate measures:**
+  - the class's *intrinsic capability* against a submarine;
+  - the *tactical threat* a contact poses now.
+- **The class library.**
+
+**Commanders** are persistent people with their own character.
+
+- They remember meeting your boat: a search that came to nothing, a near thing, an attack.
+- What they remember changes how they hunt: how long they keep at it, how readily they ping, how sharp their lookouts are.
+- Nothing more than that, and nothing at all if they have never met you.
+- A commander who survives the loss of a ship may come back on another. The dead do not.
+- Northern Command also keeps a reading of your own conduct: how stealthy, how quick to use weapons, how much the other side knows of you.
+
+**Damage.**
+
+- Where a torpedo hits matters. A hit under the keel amidships can break a small ship's back. A bow hit may leave a large ship afloat and listing. A stern hit may take her steering and power.
+- Your damage assessment is built only from evidence:
+  - detonations and secondary explosions heard;
+  - fire, list and settling seen through the periscope;
+  - screws stopped, breaking-up noises;
+  - later, rescue reports.
+- It always says how confident it is, and changes as evidence arrives.
+
+**Consequences.** An attack, a loss or a confirmed detection stirs up the foreign forces: more patrols, and aircraft sent to look where it happened.
+
 ## Time compression
 
 - **Levels:** ×1 to ×250, from the keys or the command bar.
@@ -204,7 +274,9 @@ The table keeps the keyboard while it is open.
 
 ## Known limitations (playtest)
 
-- **Only the patrol area is fully dressed.** Elsewhere in the region the land, the seabed, the bergs and the pack are there and charted, but there is little traffic yet.
+- **The wider region is thinly populated.** It has about ten ships on voyages and a few aircraft at a time; the original patrol area keeps its own story traffic.
+- **Distant ships are simple.** Ships beyond the horizon are drawn only as contacts. Regional ships use the existing ship models.
+- **No helicopters.** Foreign warships do not yet launch them.
 - **The 3D world is streamed around you.**
   - Near the boat: detailed seabed and land.
   - Further away: coarse land.
@@ -220,14 +292,13 @@ The table keeps the keyboard while it is open.
 
 ## Not in this build yet
 
-These belong to later checkpoints of this mission:
+These belong to the final checkpoint of this mission:
 
-- wider world traffic and aircraft;
-- the intelligence database;
-- delayed reports;
-- battle damage assessment;
-- crew loyalty;
-- the remaining interiors and vessel models.
+- crew loyalty and conscience;
+- freedom of command (going your own way, and how the world answers);
+- the remaining interiors;
+- better vessel and iceberg models;
+- the exterior camera at the water's surface.
 
 ## Testing
 
@@ -235,6 +306,6 @@ Windows gameplay and audio have **not** been played on Windows by the developer.
 
 - The Windows build is produced by GitHub Actions.
 - Testing was done on Linux:
-  - headless checks: saves, interface, chart against seabed, collisions, time compression, the hull, cards, sound resolution, pause and control room;
+  - headless checks: saves, interface, chart against seabed, collisions, time compression, the hull, traffic, aircraft, reports, intelligence, damage, cards, sound resolution, pause and control room;
   - a 62-hour simulated patrol;
   - software-rendered screenshots.

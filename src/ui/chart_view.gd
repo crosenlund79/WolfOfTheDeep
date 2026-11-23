@@ -28,7 +28,8 @@ var dr_error := 20.0
 var planned_knots := 9.0
 var track: Array = []               # own track history: [x, z]
 var reported_ice: Array = []        # [{pos, keel, r, t, id}] from ice reports
-var aircraft_marks: Array = []      # filled by the world (R3)
+var aircraft_marks: Array = []      # aircraft as the boat knows them (ESM, sightings, last known)
+var intel_marks: Array = []         # units known only from reports: {pos, unc, label, color}
 
 var _center := Vector2(0.0, 0.0)
 var _mpp := 60.0
@@ -475,6 +476,8 @@ func _draw() -> void:
 	if sensors:
 		for c in sensors.contacts:
 			_draw_contact(c, f)
+	for m in intel_marks:
+		_draw_intel_mark(m, f)
 	for a in aircraft_marks:
 		_draw_aircraft(a, f)
 	_draw_ownship()
@@ -766,14 +769,35 @@ func _draw_aircraft(a: Dictionary, f: Font) -> void:
 	var p := world_to_screen(a["pos"])
 	var col: Color = a.get("color", Color(0.6, 0.3, 0.1))
 	var kind := String(a.get("kind", "confirmed"))
-	if kind == "lkp" or kind == "suspected":
-		draw_arc(p, maxf(float(a.get("unc", 2000.0)) / _mpp, 6.0), 0.0, TAU, 32, Color(col.r, col.g, col.b, 0.4), 1.0)
+	if a.has("from"):
+		# ESM: a bearing line from where it was heard; the range is a guess.
+		var o := world_to_screen(a["from"])
+		var dir := Vector2(sin(deg_to_rad(float(a["brg"]))), -cos(deg_to_rad(float(a["brg"]))))
+		var far := o + dir * maxf(o.distance_to(p) * 1.6, 60.0)
+		draw_dashed_line(o, far, Color(col.r, col.g, col.b, 0.55), 1.0, 6.0)
+	elif kind == "lkp" or kind == "suspected":
+		draw_arc(p, clampf(float(a.get("unc", 2000.0)) / _mpp, 6.0, 260.0), 0.0, TAU, 32, Color(col.r, col.g, col.b, 0.4), 1.0)
 	var pts := PackedVector2Array([p + Vector2(0, -8), p + Vector2(7, 4), p + Vector2(0, 1), p + Vector2(-7, 4), p + Vector2(0, -8)])
 	if kind == "confirmed":
 		draw_colored_polygon(pts, col)
 	else:
 		draw_polyline(pts, col, 1.5)
 	draw_string(f, p + Vector2(10, -6), String(a.get("label", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
+
+
+## A unit known only from a report: hollow diamond, a circle of doubt that
+## grows with the report's age, and its designation.
+func _draw_intel_mark(m: Dictionary, f: Font) -> void:
+	var p := world_to_screen(m["pos"])
+	var col: Color = m.get("color", Color(0.5, 0.5, 0.5))
+	# The circle of doubt grows with the report's age; past a point it says
+	# little more than "somewhere around here", so it is capped.
+	var r := minf(float(m.get("unc", 0.0)), 50000.0) / _mpp
+	if r > 4.0:
+		draw_arc(p, r, 0.0, TAU, 48, Color(col.r, col.g, col.b, 0.3), 1.0)
+	var pts := PackedVector2Array([p + Vector2(0, -7), p + Vector2(7, 0), p + Vector2(0, 7), p + Vector2(-7, 0), p + Vector2(0, -7)])
+	draw_polyline(pts, col, 1.5)
+	draw_string(f, p + Vector2(10, 4), String(m.get("label", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
 
 
 func _draw_ownship() -> void:

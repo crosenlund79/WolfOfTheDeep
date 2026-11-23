@@ -43,6 +43,18 @@ var fishing_radius := 2000.0
 var suspicion := 0.0
 ## Physical damage state (simulation truth; the crew only ever sees assessments).
 var damage := {"hull": 0.0, "propulsion": 0.0, "steering": 0.0, "flooding": 0.0, "fire": 0.0, "list": 0.0, "sensors": 0.0, "weapons": 0.0}
+## Where the last hit landed (truth; the boat only learns it from evidence).
+var last_hit := {}
+## Sinking speed (1 = the full sequence in about a minute; 0 = not sinking).
+var sink_rate := 1.0
+## The commander's record (intelligence database) and attitudes towards the
+## boat, built from memories: {"wary", "grudge", "aggr", "patience"}. Empty
+## or zero attitudes change nothing.
+var commander: Dictionary = {}
+## Intelligence unit id and regional traffic id (empty for staged ships).
+var unit_id := ""
+## Far away: no wave motion or meshes, only the voyage (distant traffic).
+var far := false
 var datum := Vector3.ZERO
 var _behavior_t := 0.0
 var _ping_t := 300.0
@@ -148,6 +160,27 @@ func _ready() -> void:
 	_churn = _make_churn()
 
 
+## What an observer could make out of the ship (for damage assessment):
+## never the damage figures themselves.
+func apparent() -> Dictionary:
+	var burning := false
+	if state == State.STRICKEN:
+		burning = not _fires.is_empty() and _sink_depth < draft + 2.0
+	elif _hits > 0:
+		burning = float(damage["fire"]) > 0.08
+	return {"list": rad_to_deg(_list), "trim": rad_to_deg(_trim) * _trim_sign, "settle": _sink_depth, "fire": burning,
+		"under": state == State.SUNK or _sink_depth > draft + top_height * 0.75, "speed": speed,
+		"breaking": state == State.STRICKEN and _sink_t > 20.0}
+
+
+## Distant traffic: no meshes, lights or wave motion; the voyage goes on.
+func set_far(on: bool) -> void:
+	far = on
+	_body.visible = not on
+	if _churn:
+		_churn.emitting = false if on else _churn.emitting
+
+
 func place(pos: Vector3, p_heading: float, knots: float) -> void:
 	position = Vector3(pos.x, 0.0, pos.z)
 	heading = p_heading
@@ -170,6 +203,7 @@ func save_state() -> Dictionary:
 		"drift": SaveSystem.v3(drift_velocity), "fishing_center": SaveSystem.v3(fishing_center), "fishing_radius": fishing_radius,
 		"ais_on": ais_on, "recycle": recycle, "sink_t": _sink_t, "sink_depth": _sink_depth, "list": _list, "trim": _trim,
 		"list_side": _list_side, "trim_sign": _trim_sign, "hits": _hits, "damage": damage.duplicate(true),
+		"last_hit": last_hit.duplicate(), "sink_rate": sink_rate, "unit_id": unit_id,
 	}
 
 
@@ -206,7 +240,13 @@ func load_state(d: Dictionary) -> void:
 	_hits = int(d.get("hits", 0))
 	var dm: Variant = d.get("damage")
 	if dm is Dictionary:
-		damage = dm
+		for k in (dm as Dictionary):
+			damage[k] = float(dm[k])
+	var lh: Variant = d.get("last_hit")
+	if lh is Dictionary:
+		last_hit = lh
+	sink_rate = float(d.get("sink_rate", 1.0))
+	unit_id = String(d.get("unit_id", unit_id))
 	if state == State.SUNK:
 		visible = false
 	elif state == State.STRICKEN:
@@ -236,18 +276,71 @@ func contains_point(world_pos: Vector3) -> bool:
 	return l.y > -draft - 1.0 and l.y < 4.0
 
 
-## A torpedo has struck at world_pos.
+## A torpedo has struck at world_pos. What it does depends on where it hit,
+## how deep, and how big the ship is: a hit under the keel or amidships can
+## break a small ship's back; a bow hit on a large one may leave her afloat.
 func strike(world_pos: Vector3) -> void:
 	var l := to_local(world_pos)
 	_hits += 1
 	_add_fire(Vector3(clampf(l.x, -beam * 0.45, beam * 0.45), 1.5, l.z))
+	_apply_hit(l)
+	var rate := sink_rate_from_damage()
 	if state == State.STRICKEN:
+		sink_rate = maxf(sink_rate, rate)
 		_sink_t += 6.0
 		return
-	state = State.STRICKEN
-	_sink_t = 0.0
 	_list_side = 1.0 if l.x >= 0.0 else -1.0
 	_trim_sign = 1.0 if l.z < 0.0 else -1.0
+	recycle = false
+	if rate <= 0.0:
+		# Hurt but afloat: listing, perhaps without way or steering.
+		_list = deg_to_rad(float(damage["list"]))
+		_trim = deg_to_rad(float(damage["flooding"]) * 3.0)
+		return
+	_begin_sinking(rate)
+
+
+## Damage from a hit at local position l (accumulates over hits).
+func _apply_hit(l: Vector3) -> void:
+	var sfrac := clampf((l.z + length * 0.5) / length, 0.0, 1.0)     # 0 bow .. 1 stern
+	var k := clampf(150.0 / length, 0.45, 2.6)
+	var under := l.y < -draft * 0.85
+	var section := "midships"
+	var add := {}
+	if sfrac < 0.15:
+		section = "bow"
+		add = {"flooding": 0.3, "hull": 0.25, "sensors": 0.6}
+	elif sfrac < 0.38:
+		section = "forward"
+		add = {"flooding": 0.45, "hull": 0.4, "weapons": 0.5, "fire": 0.5}
+	elif sfrac < 0.62:
+		add = {"flooding": 0.6, "hull": 0.65, "propulsion": 0.4, "fire": 0.6}
+	elif sfrac < 0.85:
+		section = "aft"
+		add = {"flooding": 0.45, "hull": 0.4, "propulsion": 0.9, "fire": 0.5}
+	else:
+		section = "stern"
+		add = {"flooding": 0.3, "hull": 0.25, "propulsion": 0.6, "steering": 1.0}
+	var mult := k * (1.6 if under else 1.0) * _rng.randf_range(0.85, 1.15)
+	for key in add:
+		var m := mult if key in ["flooding", "hull"] else minf(mult, 1.3)
+		damage[key] = clampf(float(damage[key]) + float(add[key]) * m, 0.0, 1.0)
+	damage["list"] = clampf(float(damage["flooding"]) * 14.0 * (0.6 if under else 1.0), 0.0, 25.0)   # degrees
+	last_hit = {"section": section, "under_keel": under, "side": "starboard" if l.x >= 0.0 else "port"}
+
+
+## 0 if she stays afloat (for now), else how fast she goes.
+func sink_rate_from_damage() -> float:
+	var w := float(damage["flooding"]) * (1.0 + float(damage["hull"]))
+	if w < 0.75:
+		return 0.0
+	return clampf((w - 0.6) * 1.2, 0.03, 1.0)
+
+
+func _begin_sinking(rate: float) -> void:
+	sink_rate = rate
+	state = State.STRICKEN
+	_sink_t = 0.0
 	recycle = false
 	for light in _lights:
 		light.visible = false
@@ -285,7 +378,13 @@ func advance(dt: float, around: Vector3) -> void:
 		_advance_sinking(dt)
 	else:
 		_think(dt)
+		if _hits > 0:
+			_advance_damage(dt)
 	position += forward() * speed * dt
+	if far:
+		position += drift_velocity * dt
+		position.y = -run_depth
+		return
 	# Keep the staged traffic in view: recycle ships that sail far away.
 	var rel := position - around
 	rel.y = 0.0
@@ -315,8 +414,23 @@ func advance(dt: float, around: Vector3) -> void:
 	basis = Basis(Vector3.UP, -heading) * Basis(Vector3.RIGHT, _pitch - _trim * _trim_sign) * Basis(Vector3.FORWARD, _roll + _list * _list_side)
 
 
+## Afloat after a hit: the crew fight the flooding; it is won or it isn't.
+func _advance_damage(dt: float) -> void:
+	var f := float(damage["flooding"])
+	if f > 0.42:
+		damage["flooding"] = minf(f + dt * 0.000012 * f, 1.0)
+	else:
+		damage["flooding"] = maxf(f - dt * 0.000006, 0.0)
+	damage["fire"] = maxf(float(damage["fire"]) - dt * 0.00012, 0.0)
+	damage["list"] = clampf(float(damage["flooding"]) * 14.0, 0.0, 25.0)
+	_list = move_toward(_list, deg_to_rad(float(damage["list"])), dt * 0.0005)
+	var rate := sink_rate_from_damage()
+	if rate > 0.0:
+		_begin_sinking(rate)
+
+
 func _advance_sinking(dt: float) -> void:
-	_sink_t += dt
+	_sink_t += dt * sink_rate
 	var t := _sink_t
 	var total := draft + top_height + 25.0
 	# Settle and list, then an accelerating plunge.
@@ -740,8 +854,9 @@ func _steer_to(target: Vector3, knots: float, dt: float) -> float:
 	var rel := target - position
 	rel.y = 0.0
 	var want := atan2(rel.x, -rel.z)
-	heading += clampf(wrapf(want - heading, -PI, PI), -dt * 0.012, dt * 0.012)
-	speed = move_toward(speed, knots * 0.5144, dt * 0.05)
+	var turn := dt * 0.012 * (1.0 - float(damage["steering"]))
+	heading += clampf(wrapf(want - heading, -PI, PI), -turn, turn)
+	speed = move_toward(speed, knots * 0.5144 * (1.0 - float(damage["propulsion"])), dt * 0.05)
 	return rel.length()
 
 
@@ -761,7 +876,7 @@ func _think(dt: float) -> void:
 			if behavior == "patrol":
 				_ping_t -= dt
 				if _ping_t <= 0.0:
-					_ping_t = _brain_rng.randf_range(1200.0, 3000.0) * (0.3 if suspicion > 0.4 else 1.0)
+					_ping_t = _brain_rng.randf_range(1200.0, 3000.0) * (0.3 if suspicion > 0.4 else 1.0) * ping_factor()
 					pinged.emit(self)
 				suspicion = maxf(suspicion - dt / 2400.0, 0.0)
 		"fishing":
@@ -795,6 +910,22 @@ func _think(dt: float) -> void:
 			speed = move_toward(speed, 0.0, dt * 0.03)
 
 
+func _att(k: String) -> float:
+	var a: Dictionary = commander.get("attitude", {})
+	return float(a.get(k, 0.0))
+
+
+## How much longer than usual this commander keeps searching (a grudge and a
+## patient nature make for a long hunt; wariness for a careful one).
+func persistence() -> float:
+	return 1.0 + _att("grudge") * (0.5 + _att("patience")) + _att("wary") * 0.3
+
+
+## Shorter intervals between pings for an aggressive commander with a grudge.
+func ping_factor() -> float:
+	return 1.0 - 0.45 * _att("grudge") * _att("aggr")
+
+
 ## Called by the world each sensor tick: does this ship notice the submarine?
 func sense_submarine(sub: Submarine, visibility: float, darkness: float, dt: float) -> void:
 	if state != State.SAILING or kind == Kind.MERCHANT:
@@ -818,6 +949,8 @@ func sense_submarine(sub: Submarine, visibility: float, darkness: float, dt: flo
 		var excess := sub.noise_level() - 20.0 * log(maxf(dist, 50.0)) / log(10.0) - dist * 0.0004 - 68.0 - speed * 0.8
 		if excess > 0.0:
 			gain += excess * 0.01
+	# A commander who has met the boat before keeps a sharper lookout.
+	gain *= 1.0 + 0.3 * _att("wary")
 	suspicion = clampf(suspicion + gain * dt / 10.0, 0.0, 1.2)
 	if gain > 0.0:
 		suspicion_changed.emit(self, suspicion)

@@ -43,6 +43,15 @@ func setup(p_world: Node3D, p_target: SurfaceShip) -> void:
 		ship.sunk.connect(_on_sunk)
 
 
+## A ship that joined the picture later (regional traffic): sinking effects.
+func watch_ship(ship: SurfaceShip) -> void:
+	if not ship.sinking_started.is_connected(_on_sinking_started):
+		ship.sinking_started.connect(_on_sinking_started)
+		ship.secondary_blast.connect(_on_secondary)
+		ship.went_under.connect(_on_went_under)
+		ship.sunk.connect(_on_sunk)
+
+
 ## Place the target on a crossing course ahead of the boat (also used to replay).
 func reset_target() -> void:
 	var brg := sub.heading - deg_to_rad(48.0)
