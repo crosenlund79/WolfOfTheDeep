@@ -41,7 +41,7 @@ static func seating(car: TubCareer, st: Dictionary) -> Dictionary:
 		if sit.size() < 3:
 			sit.append(c)
 		else:
-			away[c.id] = "table is full"
+			away[c.id] = "no seat left tonight"
 	return {"sit": sit, "away": away}
 
 

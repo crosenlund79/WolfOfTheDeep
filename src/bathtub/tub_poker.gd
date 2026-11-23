@@ -49,8 +49,8 @@ func _build_choose() -> void:
 		_choose.queue_free()
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", TubUi.panel())
-	panel.position = Vector2(400, 170)
-	panel.size = Vector2(1120, 700)
+	panel.position = Vector2(400, 220)
+	panel.size = Vector2(1120, 0)
 	add_child(panel)
 	_choose = panel
 	var v := VBoxContainer.new()
@@ -72,7 +72,7 @@ func _build_choose() -> void:
 		h.add_child(b)
 		var txt := "At the table: " + (", ".join(sit.map(func(c: TubCaptain) -> String: return c.short.capitalize())) if not sit.is_empty() else "nobody")
 		for id in away.keys():
-			txt += "\n%s %s" % [String(career.captain(id).short).capitalize(), String(away[id])]
+			txt += "\n%s: %s" % [String(career.captain(id).short).capitalize(), String(away[id])]
 		var l := TubUi.label(txt, 15, TubUi.INK, false)
 		l.custom_minimum_size = Vector2(520, 0)
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -255,6 +255,8 @@ func _draw() -> void:
 			_slot(pos, 96, 134)
 	var pot := g.pot()
 	var ptxt := "POT  %d candy" % pot
+	if g.hand_over and not g.winners.is_empty():
+		ptxt = "POT WON BY " + " AND ".join(g.winners.map(func(w: int) -> String: return String(g.players[w]["name"]).to_upper()))
 	var pw := f.get_string_size(ptxt, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x
 	draw_string(f, Vector2(960 - pw * 0.5, 390), ptxt, HORIZONTAL_ALIGNMENT_LEFT, -1, 26, Color.WHITE)
 	# Seats.
@@ -270,9 +272,13 @@ func _draw() -> void:
 		draw_string_outline(f, c + Vector2(-nw * 0.5, 74), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, 6, Color.WHITE)
 		draw_string(f, c + Vector2(-nw * 0.5, 74), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, TubUi.INK)
 		var st := "%d on the table  ·  purse %d" % [int(p["stack"]), session.balance(i)]
-		var sw := f.get_string_size(st, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
-		draw_string_outline(f, c + Vector2(-sw * 0.5, 96), st, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, 5, Color.WHITE)
-		draw_string(f, c + Vector2(-sw * 0.5, 96), st, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, TubUi.PINK)
+		var sw := f.get_string_size(st, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+		var plate := StyleBoxFlat.new()
+		plate.bg_color = Color(TubUi.INK, 0.82)
+		plate.set_corner_radius_all(11)
+		plate.anti_aliasing = true
+		draw_style_box(plate, Rect2(c + Vector2(-sw * 0.5 - 10, 80), Vector2(sw + 20, 24)))
+		draw_string(f, c + Vector2(-sw * 0.5, 98), st, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, TubUi.CREAM)
 		var hole: Array = p["hole"]
 		var cpos: Vector2 = c + (Vector2(60, -40) if i != 2 else Vector2(60, -30))
 		if i == 0:
@@ -309,7 +315,7 @@ func _draw() -> void:
 	var lines := message.strip_edges().split("\n")
 	var y := box.position.y + 34
 	for l in lines.slice(maxi(lines.size() - 6, 0)):
-		draw_string(f, Vector2(box.position.x + 18, y), l, HORIZONTAL_ALIGNMENT_LEFT, box.size.x - 30, 17, TubUi.INK)
+		draw_string(f, Vector2(box.position.x + 18, y), _you(l), HORIZONTAL_ALIGNMENT_LEFT, box.size.x - 30, 17, TubUi.INK)
 		y += 26
 	if quip != "":
 		draw_string(f, Vector2(box.position.x + 18, box.end.y - 22), quip, HORIZONTAL_ALIGNMENT_LEFT, box.size.x - 30, 17, TubUi.PINK)
@@ -325,6 +331,16 @@ func _draw() -> void:
 		var pw2 := f.get_string_size(prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, 28).x
 		draw_string_outline(f, Vector2(960 - pw2 * 0.5, 960), prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, 28, 10, TubUi.INK)
 		draw_string(f, Vector2(960 - pw2 * 0.5, 960), prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, 28, TubUi.SUN)
+
+
+## The shared engine narrates in the third person ("YOU calls 4.");
+## put the player's lines in the second person for the log.
+static var _you_re := RegEx.create_from_string("\\bYOU (\\w+?)s\\b")
+static func _you(l: String) -> String:
+	if not l.contains("YOU "):
+		return l
+	var t := _you_re.sub(l, "YOU $1", true)
+	return t.replace(" and is all in", " and are all in") if t.begins_with("YOU ") else t
 
 
 func _card(pos: Vector2, card: int, w: float, h: float) -> void:

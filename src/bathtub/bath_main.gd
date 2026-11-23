@@ -501,7 +501,8 @@ func _next_shot() -> void:
 			"poker":
 				open_poker()
 			"sit":
-				poker._sit(TubPokerSession.STAKES[0])
+				if poker.phase == "choose":
+					poker._sit(TubPokerSession.STAKES[0])
 				for _i in int(kv[1]) if kv.size() > 1 else 0:
 					if poker.phase == "ai":
 						poker._ai_step()
