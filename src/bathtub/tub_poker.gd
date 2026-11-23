@@ -181,7 +181,13 @@ func _finish(why: String) -> void:
 
 
 func handle_key(k: int) -> bool:
-	if not visible or phase == "choose":
+	if not visible:
+		return false
+	if phase == "choose":
+		if k == KEY_ESCAPE:
+			visible = false
+			left.emit([])
+			return true
 		return false
 	match k:
 		KEY_SPACE, KEY_ENTER:

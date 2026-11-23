@@ -20,7 +20,7 @@ const FAUCET_RUN := 6.0
 
 const SUB_TORP := {"speed": 560.0, "life": 2.4, "dmg": 24.0}
 const SHIP_TORP := {"speed": 360.0, "life": 3.2, "dmg": 18.0}
-const PELLET := {"speed": 620.0, "life": 0.9, "dmg": 4.0}
+const PELLET := {"speed": 620.0, "life": 0.9, "dmg": 3.0}
 const CHARGE := {"fuse": 1.1, "r": 95.0, "deep": 20.0, "scope": 13.0}
 const SQUEAK := {"r": 260.0, "grow": 520.0, "dmg": 10.0}
 const RAM_DMG := 22.0
@@ -214,6 +214,7 @@ func _tick(s: TubShip, dt: float) -> void:
 	s.reload = maxf(s.reload - dt, 0.0)
 	s.revealed_t = maxf(s.revealed_t - dt, 0.0)
 	s.hit_flash = maxf(s.hit_flash - dt, 0.0)
+	s.bump_cd = maxf(s.bump_cd - dt, 0.0)
 	if s.has("shield") and not s.shield:
 		s.shield_t -= dt
 		if s.shield_t <= 0.0:
@@ -270,26 +271,29 @@ func _resolve_static(s: TubShip) -> void:
 	var d := tub_sdf(s.pos) + r
 	if d > 0.0:
 		var n := _grad(tub_sdf, s.pos)
+		var hit := s.velocity().dot(n)
 		s.pos -= n * d
-		var hit := s.speed
 		s.speed *= 0.4
-		if absf(hit) > 140.0:
-			_bump(s, absf(hit))
+		_bump(s, hit)
 	for o in obstacles:
 		if not blocks(o, s.depth):
 			continue
 		var od := box_sdf(o, s.pos) - r
 		if od < 0.0:
 			var n2 := _grad(func(p: Vector2) -> float: return box_sdf(o, p), s.pos)
+			var hit2 := -s.velocity().dot(n2)
 			s.pos -= n2 * od
-			var hit2 := s.speed
 			s.speed *= 0.4
-			if absf(hit2) > 140.0:
-				_bump(s, absf(hit2))
+			_bump(s, hit2)
 
 
-func _bump(s: TubShip, v: float) -> void:
-	_damage(s, v / 40.0, "", "bump")
+## A hard knock (speed straight into the rim or the soap) dents the hull,
+## once per collision; sliding along or nudging against it does not.
+func _bump(s: TubShip, v_in: float) -> void:
+	if v_in <= 140.0 or s.bump_cd > 0.0:
+		return
+	s.bump_cd = 1.0
+	_damage(s, v_in / 60.0, "", "bump")
 	_event({"type": "thud", "pos": s.pos})
 
 
@@ -756,9 +760,9 @@ func _weapons(s: TubShip, tgt: TubShip, t_pos: Vector2, d: float, decoy_t: bool)
 	match s.kind:
 		"patrol":
 			if t_depth == 0 and d < 480.0 and float(ai["cool"]) <= 0.0:
-				ai["cool"] = 0.9 * wfac / (0.7 + aggression * 0.6)
+				ai["cool"] = 1.1 * wfac / (0.7 + aggression * 0.6)
 				var aim := _lead(s.pos, t_pos, tgt, PELLET["speed"])
-				var dir := (aim - s.pos).normalized().rotated(rng.randf_range(-0.06, 0.06))
+				var dir := (aim - s.pos).normalized().rotated(rng.randf_range(-0.14, 0.14))
 				pellets.append({"pos": s.pos + dir * (s.radius() + 4.0), "vel": dir * PELLET["speed"], "owner": s.id, "life": PELLET["life"], "dmg": PELLET["dmg"]})
 				_event({"type": "pew", "pos": s.pos, "id": s.id})
 			if t_depth >= 1 and d < 85.0 and float(ai["dc"]) <= 0.0:

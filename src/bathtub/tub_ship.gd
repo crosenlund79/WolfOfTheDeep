@@ -39,6 +39,7 @@ var ai := {}
 var revealed_t := 0.0               # pinged by a destroyer: seen for a while
 var lifting := 0.0                  # being lifted out of the bath (retreat)
 var hit_flash := 0.0
+var bump_cd := 0.0                  # one knock per collision, not one per frame
 var last_attacker := ""
 var last_attacker_t := -99.0
 var hits := 0

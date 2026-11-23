@@ -103,8 +103,16 @@ func _movement() -> void:
 	p.pos = Vector2(0, 0)
 	p.heading = 0.0
 	p.throttle = 1.0
+	var hull0 := p.hull
 	_run(b, 8.0)
 	_ok(TubBattle.tub_sdf(p.pos) <= -p.radius() + 1.0, "the tub wall keeps it in")
+	_ok(p.hull < hull0 and p.hull >= hull0 - 2.0 * p.top_speed() / 60.0, "ramming the rim dents the hull once, not again and again while pushing (%.0f -> %.0f)" % [hull0, p.hull])
+	p.hull = hull0
+	p.pos = Vector2(-300, TubBattle.HALF.y - p.radius() - 0.5)
+	p.heading = 0.0
+	p.speed = p.top_speed()
+	_run(b, 1.5)
+	_ok(p.hull == hull0, "sliding along the rim at full speed costs nothing")
 
 
 func _depth() -> void:

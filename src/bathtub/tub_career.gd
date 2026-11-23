@@ -218,12 +218,17 @@ func from_dict(d: Dictionary) -> void:
 	ship["hull"] = float(ship["hull"])
 	ship["max_hull"] = int(ship["max_hull"])
 	player["candy"] = int(player["candy"])
+	var stats: Dictionary = player["stats"]
+	for k in stats.keys():
+		stats[k] = int(stats[k])
 	captains.clear()
 	var caps: Dictionary = d["captains"]
 	for id in TubData.ROSTER_ORDER:
 		captains[id] = TubCaptain.from_dict(caps[id]) if caps.has(id) else TubCaptain.from_roster(id)
 	battle_no = int(d.get("battle_no", 0))
 	chronicle = (d.get("chronicle", []) as Array).duplicate(true)
+	for e in chronicle:
+		e["battle"] = int(e.get("battle", 0))
 	seed = int(d.get("seed", 1))
 	refit_due = bool(d.get("refit_due", false))
 	last_opponents = (d.get("last_opponents", []) as Array).duplicate()

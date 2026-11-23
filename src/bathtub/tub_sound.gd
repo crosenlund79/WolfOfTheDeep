@@ -10,6 +10,7 @@ const TEMPLATE_DIR := "res://assets/audio/bathtub/"
 const POOL := 14
 static var _cache := {}
 static var _source := {}
+static var override_root := ""
 var _players: Array[AudioStreamPlayer] = []
 var _music: AudioStreamPlayer
 var music_on := true
@@ -26,11 +27,22 @@ func _ready() -> void:
 	add_child(_music)
 
 
+static func root() -> String:
+	if override_root == "":
+		override_root = AudioLibrary.default_override_root()
+	return override_root
+
+
+static func clear_cache() -> void:
+	_cache.clear()
+	_source.clear()
+
+
 static func stream(name: String) -> AudioStream:
 	if _cache.has(name):
 		return _cache[name]
 	var s: AudioStream = null
-	var base := AudioLibrary.default_override_root().path_join("audio/bathtub/" + name)
+	var base := root().path_join("audio/bathtub/" + name)
 	for ext in ["ogg", "wav", "mp3"]:
 		var path: String = base + "." + String(ext)
 		if not FileAccess.file_exists(path):

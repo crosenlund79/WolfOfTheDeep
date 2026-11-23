@@ -378,6 +378,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_close_manage()
 	elif state == "results" and k.keycode in [KEY_SPACE, KEY_ENTER]:
 		show_harbour()
+	elif state == "menu" and k.keycode == KEY_ESCAPE and _panel is PanelContainer:
+		show_menu()     # back from "How to play"
 
 
 func _open_pause() -> void:

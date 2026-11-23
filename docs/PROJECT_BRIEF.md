@@ -27,6 +27,17 @@ This brief now records the active game, Wolf of the Deep. This file **records** 
 - **Acceptance criteria / done when:** A playable patrol with an achievable resolution; spoiler-free delivery notes; Windows artifact link, launch instructions, controls and limitations provided.
 - **Relevant checks:** Headless launch; simulated patrol; card-engine and sound-resolution checks; software-rendered screenshots of the main views.
 
+## Experiment (branch `claude/bathtub-edition`)
+
+**Status: Approved in conversation, 2026-11-23 — "The Bathtub Experiment" (Experimental Gameplay Pivot — Bathtub Edition).** Starts from the delivered Mission 006 commit `421ec45`, preserved as `backup/pre-bathtub-experiment`. Not to be merged into `main` or the serious development branch; the serious simulator is not altered.
+
+- **Objective (summary):** a fast, charming top-down 2D toy-submarine action game in a bathtub (Godot 2D, original cartoon art): responsive sub, torpedoes, obstacles, three depth states with distinct tactical purposes, component damage and retreat, battles of about 5–10 minutes; a tactical pause with Submarine, Repairs, Upgrades, Captains and Poker; a shared candy economy for the player and rivals (no permanent bankruptcy, no secret free candy or repairs); a recurring cast of rival captains with persistent purses, ships, upgrades, relationships and GRUDGE memories grown from events; the Captains' Poker Club (four-player Hold'em on the existing engine, real candy, side pots, Space after each captain); battle → poker → upgrades → next battle; separate saves.
+- **Constraints (user):** keep bathtub saves separate from the serious campaign and never modify its saves; reuse existing audio only where it fits; keep the override conventions; poker optional; no automatic merge.
+- **Recovery checkpoints:** R0 original preserved (`backup/pre-bathtub-experiment`), R1 combat, R2 candy economy, R3 poker and rivalries, R4 playable prototype (`backup/bathtub-r*`).
+- **Deliverable:** portable Windows x64 ZIP through GitHub Actions; verified backup, branch, commit, recovery references, artifact, feature summary, controls, known limitations, future suggestions.
+- **Checks:** `tests/check_tub_battle.gd`, `tests/check_tub_rivals.gd`, `tests/check_tub_flow.gd` (with `--fixed-fps 30`), `tests/check_tub_economy.gd`, `tests/check_poker.gd`.
+- **Delivery notes:** `docs/BATHTUB.md`.
+
 ## Current mission (branch `claude/mission-006-command-combat`)
 
 **Status: Approved in conversation, 2026-11-23 — Development Mission 006 "Command & Combat Refinement"** (Mission 005 playtest corrections; starts from the delivered Mission 005 commit `0239d09`; not to be merged automatically).
