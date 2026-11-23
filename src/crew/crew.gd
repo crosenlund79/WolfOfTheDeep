@@ -127,6 +127,38 @@ func _on_station(m: CrewMember, role: String) -> bool:
 	return true
 
 
+## The watchbill entry for one person, in duty terms: ON WATCH (a bridge or
+## machinery watch), ON DUTY (the galley: the cook's work, not a watch),
+## OFF DUTY, RESTING or UNAVAILABLE.
+func duty_status(m: CrewMember) -> String:
+	if not m.available:
+		return "UNAVAILABLE"
+	if not m.awake:
+		return "RESTING"
+	if m.role == "COOK":
+		return "ON DUTY" if m.location == "mess" and m.activity in ["cooking", "securing the galley"] else "OFF DUTY"
+	if m.location in ["control", "engine"] and not (m.activity in ["off duty", "studying", "eating", "playing cards"]):
+		return "ON WATCH"
+	return "OFF DUTY"
+
+
+## Everyone aboard, grouped by where they stand their duty.
+const WATCHBILL := [["CONTROL ROOM", ["miller", "maya", "freja", "haugen", "rask"]],
+	["MACHINERY", ["erik", "dahl"]], ["GALLEY", ["basse"]]]
+
+
+func watchbill() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for g in WATCHBILL:
+		for id in g[1]:
+			var m := members.get(id) as CrewMember
+			if m == null:
+				continue
+			out.append({"id": m.id, "short": m.short, "name": m.name, "role": m.role, "group": String(g[0]),
+				"status": duty_status(m), "where": m.location, "activity": m.activity})
+	return out
+
+
 func sonar_skill() -> float:
 	var h := role_holder("SONAR")
 	return h.skill("SONAR") if h else 0.5

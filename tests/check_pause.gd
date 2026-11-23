@@ -17,7 +17,9 @@ func _initialize() -> void:
 	main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
 	steps = [
-		func() -> void: main.call("_begin_patrol"),
+		func() -> void:
+			main.call("_begin_patrol")
+			main.briefing_panel.dismiss(),
 		func() -> void: _esc(),
 		func() -> void:
 			_expect(paused and main.hud.is_paused(), "first Esc opens the menu")

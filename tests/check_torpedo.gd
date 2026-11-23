@@ -22,6 +22,7 @@ func _process(_d: float) -> bool:
 	frame += 1
 	if frame == 3:
 		main.call("_begin_patrol")
+		main.briefing_panel.dismiss()
 	if frame < 6:
 		return false
 	_run()

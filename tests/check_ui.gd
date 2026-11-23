@@ -27,7 +27,14 @@ func _initialize() -> void:
 		func() -> void: main.call("_begin_patrol"),
 		func() -> void:
 			_expect(not main.game_menu.visible and not main.in_main_menu, "starting a campaign hides the menu")
-			_expect(main.command_bar.visible, "command bar visible in play"),
+			_expect(main.command_bar.visible, "command bar visible in play")
+			_expect(main.briefing_panel.visible and main.briefing_panel.text().contains("OBJECTIVES"), "the mission briefing opens on a new campaign"),
+		func() -> void: _key(KEY_ESCAPE),
+		func() -> void: _expect(not main.briefing_panel.visible and not paused, "Esc dismisses the briefing without pausing"),
+		func() -> void: _key(KEY_F1),
+		func() -> void: _expect(main.briefing_panel.visible, "F1 reopens it"),
+		func() -> void: _key(KEY_ENTER),
+		func() -> void: _expect(not main.briefing_panel.visible, "Enter dismisses it"),
 		func() -> void: _key(KEY_K),
 		func() -> void: _expect(main.contact_list.visible, "K opens the contact list"),
 		func() -> void: _key(KEY_ESCAPE),

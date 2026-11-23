@@ -88,6 +88,11 @@ func _ready() -> void:
 	faster.tooltip_text = "Faster time  ( + )"
 	faster.pressed.connect(func() -> void: request.emit("time_up"))
 	row.add_child(faster)
+	var adv := _small_button("▸▸")
+	adv.tooltip_text = "Advance until something needs the captain  ( J )"
+	adv.pressed.connect(func() -> void: request.emit("advance"))
+	row.add_child(adv)
+	_quick["advance"] = adv
 	var spacer2 := Control.new()
 	spacer2.custom_minimum_size = Vector2(10, 0)
 	row.add_child(spacer2)
@@ -135,7 +140,7 @@ func _process(_delta: float) -> void:
 	var ordered := fposmod(rad_to_deg(sub.ordered_heading), 360.0)
 	var depth_now := sub.depth if sub.depth >= 3.0 else 0.0
 	var keel: float = main.under_keel() if main.has_method("under_keel") else -1.0
-	var keel_txt := "  KEEL %3dM" % int(keel) if keel >= 0.0 and not sub.is_surfaced() else ""
+	var keel_txt := " KEEL %dM" % int(keel) if keel >= 0.0 and not sub.is_surfaced() else ""
 	var r := int(round(absf(sub.rudder_angle)))
 	var turn := rad_to_deg(sub.yaw_rate)
 	var helm := ""
@@ -143,12 +148,13 @@ func _process(_delta: float) -> void:
 		helm += " RUD %d%s" % [r, "R" if sub.rudder_angle > 0.0 else "L"]
 	if absf(turn) >= 0.05:
 		helm += " %s" % ("↻" if turn > 0.0 else "↺")
-	_values.text = "HDG %03d›%03d%s   %4.1f KT   DEPTH %5.1f M%s   BATT %d%%   HULL %d%%" % [int(hdg) % 360, int(round(ordered)) % 360, helm, sub.knots(), depth_now, keel_txt, int(sub.battery), int(sub.hull)]
+	_values.text = "HDG %03d›%03d%s  %4.1f KT  DEPTH %5.1f M%s  BATT %d%%  HULL %d%%" % [int(hdg) % 360, int(round(ordered)) % 360, helm, sub.knots(), depth_now, keel_txt, int(sub.battery), int(sub.hull)]
 	_values.add_theme_color_override("font_color", UiStyle.AMBER if sub.depth > Submarine.SAFE_DEPTH or sub.hull < 60.0 else UiStyle.WHITE)
 	var clock: GameClock = main.clock
 	_time.text = "%s  ×%s" % [clock.time_string(), main.time_label() if main.has_method("time_label") else str(int(clock.scale()))]
 	_hint.text = main.hint_text() if main.has_method("hint_text") else ""
 	_flags.text = main.status_flags() if main.has_method("status_flags") else ""
 	(_quick["intel"] as Button).visible = main.has_method("open_intel")
+	(_quick["advance"] as Button).add_theme_color_override("font_color", UiStyle.CYAN if main.get("_advance") else UiStyle.WHITE)
 	var flagged: int = main.captain_log.count_flagged() if main.get("captain_log") else 0
 	(_quick["log"] as Button).text = "L LOG" + (" (%d)" % flagged if flagged > 0 else "")

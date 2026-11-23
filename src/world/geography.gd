@@ -21,6 +21,7 @@ const ROCK_C := Vector2(1300.0, -1150.0)
 var islands: Array[Dictionary] = []
 var hazards: Array[Dictionary] = []
 var names: Array[Dictionary] = []
+var places: Array[Dictionary] = []   # charted harbours, stations and anchorages (public)
 var survey_tracks: Array = []
 var _noise := FastNoiseLite.new()
 var _noise2 := FastNoiseLite.new()
@@ -68,6 +69,7 @@ func _init() -> void:
 	_build_islands()
 	_build_hazards()
 	_build_names()
+	_build_places()
 	_build_tracks()
 
 
@@ -386,6 +388,32 @@ func _build_names() -> void:
 	# Shown while the chart scale (metres per pixel) is between min_mpp and max_mpp.
 	for e in n:
 		names.append({"text": e[0], "pos": (e[1] as Vector2) * 1000.0, "kind": e[2], "min_mpp": float(e[3]) * 0.12, "max_mpp": e[4]})
+
+
+## Charted harbours, stations and anchorages: what any chart of the region
+## shows. Each sits on its island's coast, found by walking out from the
+## island's centre along a bearing until the water starts.
+func _build_places() -> void:
+	var list := [
+		# text, kind, island, bearing from its centre (deg, 0 = north), note
+		["LONGHAMN", "harbour", "STORØYA", 135.0, "Settlement and fishing harbour. Pilotage advised."],
+		["STORØYA RADIO", "station", "STORØYA", 200.0, "Coast radio and meteorological station."],
+		["HALVMÅNEØYA ANCHORAGE", "naval", "HALVMÅNEØYA", 170.0, "Northern Command anchorage and fuel pier."],
+		["HØGØYA STATION", "station", "HØGØYA", 20.0, "Meteorological station, manned in summer."],
+		["KVITØYA HUT", "station", "KVITØYA", 250.0, "Unmanned research hut and landing place."],
+	]
+	for e in list:
+		var c := Vector2.ZERO
+		for isl in islands:
+			if String(isl["name"]) == String(e[2]):
+				c = isl["c"]
+		var dir := Vector2(sin(deg_to_rad(float(e[3]))), -cos(deg_to_rad(float(e[3]))))
+		var pos := c
+		for k in 4000:
+			pos = c + dir * float(k) * 100.0
+			if coast_distance(pos.x, pos.y) > 150.0:
+				break
+		places.append({"text": e[0], "kind": e[1], "pos": pos, "note": e[4]})
 
 
 func _build_tracks() -> void:

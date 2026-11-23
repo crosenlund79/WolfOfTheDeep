@@ -11,3 +11,5 @@ Record only observations found during approved work. An item here is **not** per
 | 2026-11-23 | Regional fjords are single winding channels; branching fjords, sills and glacier fronts would read more naturally on the chart. | Mission 005 R2 chart review. |
 | 2026-11-23 | Seen from just below the surface at a grazing angle, the distant underside of the sea surface shows as a crisp band that does not blend with the underwater fog. | Mission 005 R4 exterior camera work. |
 | 2026-11-23 | The engine room, mess and cabin 3D rooms still exist behind the new 2D interfaces and keep rendering while hidden. | Mission 005 R4 interiors. |
+| 2026-11-23 | The "Remain undetected" objective is marked failed the moment a warship's hidden assessment crosses its threshold, so the objective list (and the briefing that repeats it) can tell the player something the crew could not know. Pre-existing behaviour. | Mission 006 R2, briefing and pursuit work. |
+| 2026-11-23 | At 1920 px wide the command bar's live values (heading, rudder, depth, keel, battery, hull) only just fit; at smaller widths or larger UI scale they clip. | Mission 006 R2 command bar. |

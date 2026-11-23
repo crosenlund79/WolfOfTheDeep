@@ -7,7 +7,7 @@ const LATITUDE := 76.5
 const DECLINATION := -1.5
 const START_SECONDS := 5.0 * 3600.0 + 35.0 * 60.0
 ## Awake time compression levels; sleeping uses REST_SCALE.
-const LEVELS := [1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0]
+const LEVELS := [1.0, 2.0, 4.0, 10.0, 25.0, 50.0, 100.0, 250.0]
 const REST_SCALE := 150.0
 
 var seconds := START_SECONDS

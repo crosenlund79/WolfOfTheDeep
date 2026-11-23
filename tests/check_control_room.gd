@@ -17,7 +17,8 @@ func _initialize() -> void:
 	steps = [
 		func() -> void:
 			pilot = main.pilot
-			main.call("_begin_patrol"),
+			main.call("_begin_patrol")
+			main.briefing_panel.dismiss(),
 		func() -> void:
 			main.call("set_view", 0),
 		func() -> void:

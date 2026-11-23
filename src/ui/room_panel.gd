@@ -125,9 +125,26 @@ func _refresh() -> void:
 	var loc: String = {"engine": "engine", "mess": "mess", "cabin": "cabin"}.get(room, "")
 	if room == "cabin":
 		_people.add_child(UiStyle.label("WATCH BILL  ·  NOW", 13, DIM))
-		for r in [["XO", "Executive officer"], ["NAVIGATOR", "Navigation"], ["SONAR", "Sonar"], ["HELM", "Helm"], ["ENGINEER", "Engineering"]]:
+		var group := ""
+		var role_txt := {"XO": "XO", "NAVIGATOR": "navigator", "SONAR": "sonar officer", "WATCH_SONAR": "sonar", "HELM": "helm",
+			"ENGINEER": "chief engineer", "MACHINIST": "machinist", "COOK": "cook"}
+		for w in crew.watchbill():
+			if String(w["group"]) != group:
+				group = String(w["group"])
+				var gl := {"CONTROL ROOM": "CONTROL ROOM  ·  bridge watch", "MACHINERY": "MACHINERY  ·  engineering watch",
+					"GALLEY": "GALLEY  ·  galley duty, not a watch"}
+				_people.add_child(UiStyle.label(String(gl.get(group, group)), 12, DIM))
+			var st := String(w["status"])
+			var col := INK if st in ["ON WATCH", "ON DUTY"] else (BAD if st == "UNAVAILABLE" else DIM)
+			_people.add_child(UiStyle.label("  %-7s %-12s %-15s %s" % [String(w["short"]), st, String(role_txt.get(String(w["role"]), "")), String(w["activity"])], 13, col, UiStyle.mono()))
+		var manned: Array[String] = []
+		for r in [["XO", "XO"], ["NAVIGATOR", "NAV"], ["SONAR", "SONAR"], ["HELM", "HELM"], ["ENGINEER", "ENG"]]:
 			var h: CrewMember = crew.role_holder(String(r[0]))
-			_people.add_child(UiStyle.label("%-18s %s" % [String(r[1]), h.name if h else "(unmanned)"], 14, INK, UiStyle.mono()))
+			manned.append("%s %s" % [String(r[1]), h.short if h else "(unmanned)"])
+		var ml := UiStyle.label("STATIONS  " + "  ·  ".join(manned), 12, DIM, UiStyle.mono())
+		ml.autowrap_mode = TextServer.AUTOWRAP_WORD
+		ml.custom_minimum_size = Vector2(size.x * 0.5, 0)
+		_people.add_child(ml)
 		_people.add_child(UiStyle.label(" ", 8, DIM))
 		_people.add_child(UiStyle.label("PATROL ORDERS", 13, DIM))
 		for o in main.patrol.objectives:

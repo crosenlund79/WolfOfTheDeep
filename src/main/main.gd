@@ -66,6 +66,7 @@ var contact_list: ContactList
 var log_view: LogView
 var game_menu: GameMenu
 var dev_panel: DevPanel
+var briefing_panel: BriefingPanel
 var unlimited_weapons := false
 var in_main_menu := false
 var _autosave_t := 0.0
@@ -118,6 +119,7 @@ var _bda: Dictionary = {}               # ship uid -> damage assessment evidence
 var _searching: Dictionary = {}         # ship uid -> true while a commander searches for us
 var _fate_rng := RandomNumberGenerator.new()
 var conscience: Conscience
+var pursuit := PursuitAssessment.new()
 var room_panel: RoomPanel
 var standing: CommandStanding
 var _deep_judged := false
@@ -494,6 +496,8 @@ func _build_ui() -> void:
 	dev_panel = DevPanel.new()
 	dev_panel.main = self
 	ui.add_child(dev_panel)
+	briefing_panel = BriefingPanel.new()
+	ui.add_child(briefing_panel)
 	game_menu = GameMenu.new()
 	game_menu.action.connect(on_menu_action)
 	game_menu.visible = false
@@ -567,6 +571,8 @@ func _begin_patrol() -> void:
 			audio.play_voice("vo_basse_mutter_danish", AudioManager.Loc.MESS)
 			hud.show_line("BASSE", b.color, "(from the galley, something in Danish about the coffee)", "overheard"))
 	hud.toast("ORDERS ARRIVE AT PERISCOPE DEPTH  ·  5  CHART  ·  TAB  ORDERS  ·  H  HELP")
+	if _capture.is_empty() and _sim_hours <= 0.0:
+		open_briefing(false)
 
 
 # --- simulation ------------------------------------------------------------------
@@ -584,14 +590,17 @@ func _process(delta: float) -> void:
 		scale = GameClock.REST_SCALE if asleep else clock.scale()
 	if patrol.done:
 		scale = minf(scale, 1.0)
+	if briefing_panel.visible:
+		scale = 0.0       # the world waits while the captain reads
 	var sim := real_dt * scale
 	# Fine steps at ordinary rates; at high compression one-second steps (as
 	# the headless patrol simulation uses): under ten metres per step even at
 	# flank speed, so no collision is skipped.
 	var steps := maxi(1, ceili(sim / (SUBSTEP if scale <= 25.0 else 1.0)))
 	var h := sim / float(steps)
-	for _i in steps:
-		_sim_step(h)
+	if sim > 0.0:
+		for _i in steps:
+			_sim_step(h)
 	ocean.advance(real_dt * minf(scale, 2.0))
 	rig.sun_dir = weather.to_sun()
 	rig.advance(real_dt)
@@ -673,6 +682,8 @@ func _slow_tick(dt: float) -> void:
 			_passed.erase(s)
 	_navigation(dt)
 	_world_intel()
+	_assess_pursuit(dt)
+	_advance_watch()
 	conscience.advance(dt)
 	standing.advance(dt)
 	_plant_reports()
@@ -712,7 +723,7 @@ func _navigation(dt: float) -> void:
 	if under < 25.0 and not watch.active and _cd("shoal", 240.0):
 		crew.react("shoal_warning", {"depth": int(maxf(under, 0.0))})
 		clog("NAVIGATION", "Shoaling ahead: about %d m under the keel in %d m. Charted depth there %d m." % [int(maxf(under, 0.0)), int(look), int(area.seabed_depth(ahead.x, ahead.z))], "assessment")
-		_drop_time()
+		_drop_time("shoaling water ahead")
 	_navigate_route()
 	_record_track(dt)
 	_ice_advice()
@@ -731,7 +742,7 @@ func _navigate_route() -> void:
 		chart.route_changed.emit()
 		clog("NAVIGATION", "Waypoint reached at %s. %d remaining." % [ChartView.latlon(sub.global_position), chart.route.size()])
 		if _fast_wp:
-			_drop_time()
+			_drop_time("waypoint reached")
 			hud.event("WAYPOINT REACHED")
 		if chart.route.is_empty():
 			route_follow = false
@@ -800,7 +811,7 @@ func _ice_advice() -> void:
 		var src_txt := "from the ice report, position uncertain" if k["src"] == "report" else "sonar estimate"
 		dialogue.say(who, "Ice on our track, Captain, %s. Keel about %d metres (%s). %s" % [where, int(round(float(k["keel"]) / 10.0) * 10), src_txt, advice], Dialogue.P.REPORT)
 		clog("NAVIGATION", "Ice on the track %s, keel est. %d m (%s). %s" % [where, int(round(float(k["keel"]) / 10.0) * 10), src_txt, advice], "assessment", {"pos": k["pos"]})
-		_drop_time()
+		_drop_time("ice on the track")
 		break
 	# Pack ice where we intend to surface.
 	if sub.ordered_depth() < 15.0 and not sub.is_surfaced():
@@ -808,7 +819,7 @@ func _ice_advice() -> void:
 		if area.geo.ice_cover(p.x, p.z) > 0.45 and _cd("pack_surface", 300.0):
 			dialogue.say("miller", "Captain, there's close pack overhead. We can't surface here; I'd keep her below sixty until we're clear.", Dialogue.P.CRITICAL)
 			clog("NAVIGATION", "Close pack ice overhead: unsafe to surface.", "assessment")
-			_drop_time()
+			_drop_time("close pack overhead")
 
 
 ## Ice reports arrive with Northern Command's broadcasts: large bergs seen by
@@ -841,7 +852,7 @@ func _on_pressure_event(kind: String, detail: String) -> void:
 			audio.play("sfx_alarm", -8.0)
 			dialogue.say("erik", "Captain! %s She's telling us something down here." % detail, Dialogue.P.CRITICAL)
 			clog("ENGINEERING", "Pressure damage at %d m: %s" % [int(sub.depth), detail], "confirmed")
-	_drop_time()
+	_drop_time("the hull is under pressure")
 
 
 func _plant_reports() -> void:
@@ -849,11 +860,11 @@ func _plant_reports() -> void:
 	if b < 12 and _battery_warned < 2:
 		_battery_warned = 2
 		crew.react("battery_crit", {"pct": b})
-		_drop_time()
+		_drop_time("engineering report")
 	elif b < 30 and _battery_warned < 1:
 		_battery_warned = 1
 		crew.react("battery_low", {"pct": b})
-		_drop_time()
+		_drop_time("engineering report")
 	elif b > 45:
 		_battery_warned = 0
 	if sub.depth > 180.0 and not _deep_warned:
@@ -900,16 +911,15 @@ func _update_alert() -> void:
 	for c in sensors.tracked_vessels():
 		if c.range_est < 4000.0:
 			level = maxi(level, 1)
-	for v in vessels:
-		var s := v as SurfaceShip
-		if s.behavior == "investigate" and s.global_position.distance_to(sub.global_position) < 8000.0:
-			level = 2
+	# The crew's assessment of pursuit, never the other side's intentions.
+	if pursuit.level >= 2:
+		level = 2
 	if _alarm_t > 0.0 or sub.flooding > 0.2 or encounter.torpedo_running() or _battle:
 		level = 2
 	if level >= 2 and crew.alert < 2:
 		poker.interrupt("Battle stations. The cards are swept off the table.")
 		crew.poker_session = false
-		_drop_time()
+		_drop_time("battle stations")
 	crew.alert = level
 	# Compression never stays above what the situation allows.
 	var cap := time_cap()
@@ -928,20 +938,225 @@ func _cd(key: String, seconds: float) -> bool:
 	return true
 
 
-func _drop_time() -> void:
+func _drop_time(why: String = "") -> void:
 	_fast_wp = false
+	if _advance:
+		_stop_advance(why if why != "" else "something needs the captain's attention")
 	if (clock.level > 0 or clock.custom_scale > 0.0) and not asleep:
 		clock.set_level(0)
-		hud.toast("TIME x1")
+		hud.toast("TIME x1" + ("  ·  " + why.to_upper() if why != "" else ""))
 
 
 ## Highest compression the situation allows (index into GameClock.LEVELS).
+## Tactical (battle stations, a torpedo running, flooding): x4.
+## Alert or below safe depth: x25. Otherwise everything.
 func time_cap() -> int:
 	if crew.alert >= 2 or encounter.torpedo_running() or sub.flooding > 0.2:
-		return 1
+		return GameClock.LEVELS.find(4.0)
 	if crew.alert == 1 or sub.depth > Submarine.SAFE_DEPTH:
 		return GameClock.LEVELS.find(25.0)
 	return GameClock.LEVELS.size() - 1
+
+
+# --- mission briefing --------------------------------------------------------------
+
+func open_briefing(loaded: bool, reopened: bool = false) -> void:
+	if not started or in_main_menu:
+		return
+	var b := briefing(loaded, reopened)
+	briefing_panel.show_briefing(b)
+
+
+const _COMPASS := ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"]
+
+
+static func _compass(deg: float) -> String:
+	return _COMPASS[int(round(fposmod(deg, 360.0) / 45.0)) % 8]
+
+
+static func _bearing_to(from: Vector3, to: Vector3) -> float:
+	return fposmod(rad_to_deg(atan2(to.x - from.x, -(to.z - from.z))), 360.0)
+
+
+static func _clip(t: String, n: int) -> String:
+	return t if t.length() <= n else t.substr(0, n - 1) + "…"
+
+
+## The briefing, built only from what the captain knows: orders received,
+## the objectives as given, the boat's own plot and reports, the log and the
+## boat's state. Nothing pending, hidden or planned is consulted.
+func briefing(loaded: bool = false, reopened: bool = false) -> Dictionary:
+	var here := sub.global_position
+	var secs: Array = []
+	# Orders.
+	var orders: Array[String] = ["Covert surveillance patrol of Sector KESTREL for Northern Command."]
+	var last := {}
+	for m in patrol.received:
+		if String(m.get("from", "")) == "NORTHERN COMMAND":
+			last = m
+	if not last.is_empty():
+		orders.append("Latest signal (%s): %s" % [ReportFeed.stamp(float(last.get("at", 0.0))), _clip(String(last["text"]), 300)])
+	else:
+		orders.append("No signal copied yet. HQ traffic is copied at periscope depth with masts up.")
+	secs.append(["ORDERS", orders])
+	# Objectives, as given.
+	var obj: Array[String] = []
+	for o in patrol.objectives:
+		obj.append("%s  %s" % ["DONE  " if bool(o["done"]) else ("FAILED" if bool(o["failed"]) else "OPEN  "), String(o["text"])])
+	secs.append(["OBJECTIVES", obj])
+	# Location.
+	var loc: Array[String] = []
+	var near := {}
+	var near_d := INF
+	for n in area.geo.names:
+		var np := Vector3((n["pos"] as Vector2).x, 0.0, (n["pos"] as Vector2).y)
+		var d := Vector2(np.x - here.x, np.z - here.z).length()
+		if d < near_d:
+			near_d = d
+			var words := Array(String(n["text"]).split(" ")).filter(func(w: String) -> bool: return not w.is_valid_int())
+			near = {"text": " ".join(words), "pos": np}
+	var where := Geography.latlon_text(here.x, here.z)
+	if not near.is_empty():
+		where += ",  %.0f nm %s of %s" % [near_d / 1852.0, _compass(_bearing_to(near["pos"], here)), String(near["text"])]
+	loc.append(where + "  (dead reckoning ±%d m)" % int(_dr_error))
+	loc.append("Depth %d m, heading %03d°, %.0f kt%s." % [int(sub.depth), int(fposmod(rad_to_deg(sub.heading), 360.0)), sub.knots(),
+		"" if sub.is_surfaced() else ", about %d m under the keel" % int(maxf(under_keel(), 0.0))])
+	if patrol.in_sector(here):
+		loc.append("Inside Sector KESTREL.")
+	else:
+		loc.append("Sector KESTREL bears %03d°, %.0f nm." % [int(_bearing_to(here, patrol.sector_center)), maxf(Vector2(patrol.sector_center.x - here.x, patrol.sector_center.z - here.z).length() - patrol.sector_radius, 0.0) / 1852.0])
+	loc.append("RV HOME bears %03d°, %.0f nm; due %s (%s from now)." % [int(_bearing_to(here, patrol.rv)), Vector2(patrol.rv.x - here.x, patrol.rv.z - here.z).length() / 1852.0,
+		ReportFeed.stamp(patrol.deadline), ChartView.dur_text(maxf(patrol.deadline - clock.seconds, 0.0) / 3600.0)])
+	secs.append(["LOCATION  ·  %s" % clock.time_string(), loc])
+	# Known threats: what is on the plot and in reports.
+	var threats: Array[String] = []
+	for c in sensors.contacts:
+		if c.kind != "VESSEL" or c.status == "DROPPED":
+			continue
+		var aff := c.affiliation
+		if aff in ["HOSTILE", "SUSPECT"] or c.classification in ["WARSHIP", "SUBMARINE", "SUBMERGED"]:
+			var rng_txt := ("about %.0f km" % (c.range_est / 1000.0)) if c.range_err <= 0.3 else "range unknown"
+			threats.append("%s %s (%s), bearing %03d°, %s%s." % [c.id, c.label().to_lower(), aff.to_lower(), int(c.bearing), rng_txt, ", lost" if c.status == "LOST" else ""])
+	for m2 in chart.intel_marks:
+		if threats.size() >= 8:
+			break
+		threats.append("By report: %s." % String(m2.get("label", "unit")))
+	for a in chart.aircraft_marks:
+		if not a.has("from"):
+			threats.append("Aircraft: %s." % String(a.get("label", "")))
+	if pursuit.level > 0:
+		threats.append("Crew assessment: " + pursuit.text())
+	if threats.is_empty():
+		threats.append("None known. That is not the same as none.")
+	secs.append(["KNOWN THREATS", threats])
+	# Recent developments, from the log.
+	var recent: Array[String] = []
+	for i in range(captain_log.entries.size() - 1, -1, -1):
+		var e: Dictionary = captain_log.entries[i]
+		if clock.seconds - float(e["t"]) > 12.0 * 3600.0 or recent.size() >= 5:
+			break
+		if String(e["cat"]) in ["CONTACTS", "COMBAT", "INTEL", "COMMUNICATIONS", "ENGINEERING", "DECISIONS"]:
+			recent.append("%s  %s" % [String(e["time"]), _clip(String(e["text"]), 170)])
+	if recent.is_empty():
+		recent.append("Nothing of note in the last twelve hours.")
+	secs.append(["RECENT DEVELOPMENTS", recent])
+	# Outstanding.
+	var todo: Array[String] = []
+	var trf := patrol.objective("traffic")
+	if not trf.is_empty() and not bool(trf["done"]):
+		var nb := ceilf(clock.seconds / 21600.0) * 21600.0
+		todo.append("Next HQ broadcast %s: be at periscope depth with masts up." % ReportFeed.stamp(nb))
+	if _dr_error > 400.0:
+		todo.append("Position uncertain (±%d m): the navigator wants a fix." % int(_dr_error))
+	if sub.battery < 35.0:
+		todo.append("Battery %d%%: snorkel to charge when it is safe to." % int(sub.battery))
+	var flagged := captain_log.count_flagged()
+	if flagged > 0:
+		todo.append("%d log entr%s flagged for attention (L)." % [flagged, "y" if flagged == 1 else "ies"])
+	if not chart.route.is_empty():
+		todo.append("Route laid: %d waypoint%s%s." % [chart.route.size(), "" if chart.route.size() == 1 else "s", ", being steered" if route_follow else ", not being steered"])
+	if todo.is_empty():
+		todo.append("Nothing beyond the open objectives.")
+	secs.append(["OUTSTANDING", todo])
+	# The boat.
+	var boat: Array[String] = []
+	boat.append("Hull %d%%%s.  Battery %d%%%s.  Torpedoes %d." % [int(sub.hull), ", flooding" if sub.flooding > 0.05 else "", int(sub.battery),
+		" (charging)" if sub.diesels_running else "", sub.torpedoes])
+	boat.append("%s.%s%s" % ["Lt Cdr Miller has the conn" if watch.active else "The captain has the conn",
+		"  Silent running." if crew.silent_running else "", "  Battle stations." if _battle else ""])
+	secs.append(["THE BOAT", boat])
+	var who := "Lt Cdr Miller: \"Welcome back, Captain. Here's where we stand.\"" if loaded else \
+		("Lt Cdr Miller: \"Here's where we stand, Captain.\"" if not reopened else "Lt Cdr Miller's summary for the captain")
+	return {"title": "MISSION BRIEFING", "subtitle": who, "sections": secs}
+
+
+# --- advance until event -----------------------------------------------------------
+
+var _advance := false
+var _advance_from := 0.0
+var _advance_last := ""
+const ADVANCE_MAX_H := 12.0
+
+
+## J: run the world fast until something needs the captain. The simulation
+## is not skipped: the boat sails every metre, and anything that would slow
+## time stops it, with the reason shown.
+func _toggle_advance() -> void:
+	if _advance:
+		_stop_advance("cancelled by the captain")
+		return
+	if asleep or poker.visible or in_main_menu:
+		return
+	var cap := time_cap()
+	var block := _advance_block(false)
+	if block != "":
+		hud.toast("NOT NOW  ·  %s" % block.to_upper())
+		return
+	_advance = true
+	_advance_from = clock.seconds
+	clock.set_level(cap)
+	hud.event("ADVANCING UNTIL EVENT  ·  x%d  ·  J TO STOP" % int(clock.scale()))
+	clog("NAVIGATION", "Advancing until something needs attention (x%d)." % int(clock.scale()), "confirmed")
+
+
+func _stop_advance(why: String) -> void:
+	if not _advance:
+		return
+	_advance = false
+	_advance_last = why
+	var h := (clock.seconds - _advance_from) / 3600.0
+	clock.set_level(0)
+	hud.event("ADVANCE STOPPED  ·  %s" % why.to_upper())
+	clog("NAVIGATION", "Advance until event stopped after %s: %s." % [ChartView.dur_text(h), why], "confirmed")
+
+
+## Called every couple of seconds while advancing: stop for unsafe states
+## and after a long quiet spell (nobody sails unattended for ever).
+func _advance_watch() -> void:
+	if not _advance:
+		return
+	var why := _advance_block(true)
+	if why != "":
+		_stop_advance(why)
+
+
+## Why the boat should not (or no longer) run fast unattended; "" if she may.
+func _advance_block(running: bool) -> String:
+	if time_cap() < GameClock.LEVELS.find(25.0):
+		return "tactical situation"
+	if sub.depth > Submarine.SAFE_DEPTH:
+		return "below safe depth"
+	if sub.flooding > 0.0:
+		return "flooding"
+	if sub.battery < 15.0 and not sub.diesels_running:
+		return "battery low"
+	if not sub.is_surfaced() and under_keel() < 30.0:
+		return "shallow water under the keel"
+	if running and clock.seconds - _advance_from > ADVANCE_MAX_H * 3600.0:
+		return "twelve hours without incident"
+	if running and clock.level < GameClock.LEVELS.find(25.0):
+		return "time compression reduced"
+	return ""
 
 
 func _fast_to_waypoint() -> void:
@@ -1046,7 +1261,9 @@ func _on_contact_new(c: Contact) -> void:
 	elif c.sources.has("ais"):
 		dialogue.say("maya", "AIS contact, Captain. %s, %s, bearing %s." % [c.ais.get("name", "unnamed"), String(c.ais.get("type", "")).to_lower(), _brg(c)], Dialogue.P.REPORT)
 	audio.play("sfx_sonar_inactive_ping", -14.0)
-	_drop_time()
+	# A ship heard or seen, or close, needs the captain; a distant AIS report does not.
+	if c.sources.has("sonar") or c.sources.has("visual") or c.range_est < 15000.0:
+		_drop_time("new contact %s" % c.id)
 
 
 func _on_contact_classified(c: Contact) -> void:
@@ -1089,7 +1306,7 @@ func _on_ice_warning(c: Contact, dist: float, rel_bearing: float) -> void:
 		return
 	clog("NAVIGATION", "Ice ahead: %s, range about %d m, keel estimated %d m." % ["to starboard" if rel_bearing < 0.0 else "to port", int(round(dist / 10.0) * 10.0), int(round(float(c.berg.get("keel", 0.0)) / 10.0) * 10)], "assessment", {"contact": c.id, "pos": c.est_pos})
 	crew.react("ice_warning", {"rel": "%03d" % int(fposmod(rel_bearing, 360.0)), "range": int(round(dist / 10.0) * 10.0), "side": "to starboard" if rel_bearing < 0.0 else "to port"}, Dialogue.P.CRITICAL if dist < 400.0 else Dialogue.P.REPORT)
-	_drop_time()
+	_drop_time("ice ahead")
 
 
 func _on_damaged(amount: float, kind: String) -> void:
@@ -1110,7 +1327,7 @@ func _on_damaged(amount: float, kind: String) -> void:
 	get_tree().create_timer(5.0).timeout.connect(func() -> void: crew.react("damage_report", {"detail": detail}, Dialogue.P.CRITICAL))
 	patrol.log_entry("Collision (%s). Hull integrity %d%%." % [kind, int(sub.hull)])
 	_wake("Collision! The boat is damaged.")
-	_drop_time()
+	_drop_time("damage")
 
 
 func _on_pinged(ship: SurfaceShip) -> void:
@@ -1119,6 +1336,8 @@ func _on_pinged(ship: SurfaceShip) -> void:
 		return
 	if not sub.is_surfaced():
 		audio.play_in("sfx_sonar_ping", AudioManager.Loc.UNDERWATER, lerpf(-2.0, -18.0, d / 16000.0))
+		# How close it sounded: a rough judgement by ear.
+		pursuit.note_ping(clock.seconds, d * randf_range(0.7, 1.3))
 	var c := sensors.contact_for(ship)
 	var brg := atan2(ship.position.x - sub.position.x, -(ship.position.z - sub.position.z))
 	if not asleep and started and _cd("ping", 120.0):
@@ -1131,7 +1350,7 @@ func _on_pinged(ship: SurfaceShip) -> void:
 	if d < 9000.0 and (ship.behavior == "investigate" or ship.ping_detects(sub)) and clock.seconds > float(_cooldowns.get("ping_wake", -1e9)):
 		_cooldowns["ping_wake"] = clock.seconds + 5400.0
 		_wake("Active sonar, close. They may have had a sniff of us.")
-		_drop_time()
+		_drop_time("active sonar close by")
 
 
 func _on_suspicion(ship: SurfaceShip, level: float) -> void:
@@ -1143,12 +1362,14 @@ func _on_suspicion(ship: SurfaceShip, level: float) -> void:
 		if not ship.commander.is_empty():
 			intel.remember(String(ship.commander["id"]), "searched", clock.seconds)
 		var c := sensors.contact_for(ship)
+		# The crew see what a contact they hold does; a ship they do not hold
+		# can start searching without anyone aboard knowing.
 		if c and c.status == "TRACKING":
 			crew.react("detected_risk", {"id": c.id}, Dialogue.P.CRITICAL)
-		clog("CONTACTS", "A warship%s is behaving as if searching; we may have been detected." % ((" (" + c.id + ")") if c else ""), "unresolved", {"contact": c.id if c else ""})
-		if ship.global_position.distance_to(sub.global_position) < 14000.0:
-			_wake("A warship is searching near us.")
-			_drop_time()
+			clog("CONTACTS", "%s is behaving as if searching; we may have been detected." % c.id, "unresolved", {"contact": c.id})
+			if ship.global_position.distance_to(sub.global_position) < 14000.0:
+				_wake("%s is behaving as if searching near us." % c.id)
+				_drop_time("%s searching" % c.id)
 	if level >= 1.0:
 		if not patrol.counter_detected:
 			intel.captain_event("detected", clock.seconds, "Probably detected by a warship.")
@@ -1175,7 +1396,7 @@ func _on_message(msg: Dictionary) -> void:
 		return
 	if from == "NORTHERN COMMAND":
 		dialogue.say("miller", "Signal from Northern Command, Captain. It's in the log.", Dialogue.P.REPORT)
-	_drop_time()
+	_drop_time("signal received")
 
 
 func _on_patrol_finished(report: Dictionary) -> void:
@@ -1194,7 +1415,7 @@ func _on_patrol_finished(report: Dictionary) -> void:
 
 
 func _on_target_hit(ship: SurfaceShip) -> void:
-	_drop_time()
+	_drop_time("weapon detonation")
 	var ev: Dictionary = _bda.get(ship.uid, {})
 	var c := sensors.contact_for(ship)
 	if ev.is_empty():
@@ -1427,6 +1648,14 @@ func _on_report(r: Dictionary) -> void:
 		var ship := _ship_by_uid(subj)
 		if ship:
 			_bda_update(ship)
+	if String(r["summary"]).contains("search for a submarine"):
+		pursuit.note_intel(clock.seconds)
+	# Significant intelligence slows time: a search, or a foreign unit close by.
+	var near := false
+	if p.size() == 2 and String(u.get("navy", "")).begins_with("FOREIGN"):
+		near = Vector2(float(p[0]) - sub.global_position.x, float(p[1]) - sub.global_position.z).length() < 60000.0
+	if near or String(r["summary"]).contains("search for a submarine"):
+		_drop_time("intelligence: " + String(r["id"]))
 	if started and not asleep:
 		hud.event("INTELLIGENCE  ·  %s  ·  I TO READ" % String(r["id"]))
 	if intel_view.visible:
@@ -1443,6 +1672,8 @@ func _on_aircraft_event(kind: String, f: Dictionary, detail: String) -> void:
 		"new_esm":
 			if cls == "airliner":
 				return
+			if cls == "heron":
+				pursuit.note_aircraft(clock.seconds)
 			var what := "airborne search radar, maritime patrol type (foreign, probable)" if cls == "heron" else "airborne search radar, probably our own patrol aircraft"
 			clog("CONTACTS", "ESM: %s, bearing %s." % [what, detail], "assessment", {"source": "ESM"})
 			if cls == "heron":
@@ -1451,13 +1682,15 @@ func _on_aircraft_event(kind: String, f: Dictionary, detail: String) -> void:
 						_wake("Aircraft radar on the ESM, bearing %s. Foreign patrol aircraft." % detail)
 				elif _cd("esm_mpa", 300.0):
 					dialogue.say("freja", "Captain, ESM: airborne search radar bearing %s, patrol aircraft by the signature. Recommend masts down." % detail, Dialogue.P.CRITICAL)
-					_drop_time()
+					_drop_time("aircraft")
 		"new_visual":
+			if cls == "heron":
+				pursuit.note_aircraft(clock.seconds)
 			var what2: String = {"heron": "maritime patrol aircraft, foreign", "skua": "our own patrol aircraft", "airliner": "airliner, high"}.get(cls, "aircraft")
 			clog("CONTACTS", "Aircraft sighted, bearing %s: %s." % [detail, what2], "confirmed", {"source": "visual"})
 			if cls == "heron" and not asleep and _cd("air_vis", 300.0):
 				dialogue.say("miller", "Aircraft, bearing %s, low. Patrol type, not one of ours." % detail, Dialogue.P.CRITICAL)
-				_drop_time()
+				_drop_time("aircraft")
 
 
 func _on_pd_reached() -> void:
@@ -1949,6 +2182,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				rig.toggle_surface_side()
 		KEY_N:
 			_fast_to_waypoint()
+		KEY_J:
+			_toggle_advance()
+		KEY_F1:
+			open_briefing(false, true)
 		KEY_F5:
 			save_game("quick")
 		KEY_F10:
@@ -2097,8 +2334,45 @@ func _fire() -> void:
 		crew.remember_all("The captain fired a torpedo in peacetime.")
 		clog("DECISIONS", "Torpedo fired on the captain's order%s, without authority to use weapons." % (" at a civilian ship" if bool(ctx["civil"]) else ""), "confirmed")
 		conscience.judge("fire", ctx)
+		pursuit.note_exposure(clock.seconds)
 		standing.weapons_released(bool(ctx["civil"]))
-		_drop_time()
+		_drop_time("torpedo fired")
+
+
+## The crew's view of whether we are being hunted; changes are logged and
+## an escalation is reported and slows time.
+var _pursuit_said := 0          # the highest assessment reported to the captain lately
+var _pursuit_said_t := -1e9
+var _pursuit_wake_t := -1e9
+
+
+func _assess_pursuit(dt: float) -> void:
+	if not started:
+		return
+	var before := pursuit.level
+	var now_l := pursuit.update(clock.seconds, dt, sub.global_position, sensors.contacts)
+	if now_l < 2 and clock.seconds - _pursuit_said_t > 3.0 * 3600.0:
+		_pursuit_said = 0
+	if now_l == before:
+		return
+	clog("CONTACTS", "Pursuit assessment: " + pursuit.text(), "assessment")
+	if now_l > before:
+		hud.event("ASSESSMENT  ·  " + PursuitAssessment.SHORT[now_l])
+		# The captain is told (woken, time slowed) when it is worse than what
+		# the captain was last told, not each time the same picture returns.
+		if now_l >= 2 and now_l > _pursuit_said:
+			_pursuit_said = now_l
+			_pursuit_said_t = clock.seconds
+			if asleep:
+				# Woken for it at most once in half an hour; a further step up
+				# soon after is logged for the captain to read.
+				if clock.seconds - _pursuit_wake_t > 1800.0:
+					_pursuit_wake_t = clock.seconds
+					_wake("Captain, I think they're hunting us. " + pursuit.text())
+			else:
+				var why := ", ".join(pursuit.reasons)
+				dialogue.say("miller", "Captain, I think we're being hunted. %s." % (why.left(1).to_upper() + why.substr(1)), Dialogue.P.CRITICAL)
+			_drop_time("pursuit assessed: " + PursuitAssessment.LEVELS[now_l].to_lower())
 
 
 ## The attack as the boat knows it, stage by stage.
@@ -2183,6 +2457,7 @@ func _open_orders() -> void:
 		items.append(["report", "Radio: transmit a contact report to Northern Command", radio_ok and not patrol.flags.has("reported")])
 	items.append(["conn", "I have the conn" if watch.active else "XO: you have the conn (standing orders)"])
 	items.append("CAPTAIN")
+	items.append(["brief", "Mission briefing  (F1)"])
 	items.append(["rest", "Go to my cabin and rest"])
 	items.append(["cards", "Call a card game in the mess", crew.alert == 0])
 	var body := "Battery %d%%  ·  hull %d%%  ·  position uncertainty about %d m  ·  sonar: %s" % [int(sub.battery), int(sub.hull), int(_dr_error), (crew.role_holder("SONAR").short if crew.role_holder("SONAR") else "unmanned")]
@@ -2206,6 +2481,8 @@ func _on_menu(id: String) -> void:
 
 func _order(id: String) -> void:
 	match id:
+		"brief":
+			open_briefing(false, true)
 		"silent":
 			crew.silent_running = not crew.silent_running
 			sub.silent_running = crew.silent_running
@@ -2449,6 +2726,12 @@ func _on_poker_finished(summary: String) -> void:
 # --- menus, settings, saving -------------------------------------------------------------
 
 func _close_overlay() -> bool:
+	if briefing_panel.visible:
+		briefing_panel.dismiss()
+		return true
+	if _advance:
+		_stop_advance("cancelled by the captain")
+		return true
 	for o in [dev_panel, log_view, contact_list, intel_view]:
 		if (o as Control).visible:
 			(o as Control).visible = false
@@ -2575,6 +2858,7 @@ func gather_state(slot: String) -> Dictionary:
 		"bda": _bda.duplicate(true),
 		"conscience": conscience.save_state(),
 		"standing": standing.save_state(),
+		"pursuit": pursuit.save_state(),
 		"searching": _searching.duplicate(),
 		"nav": {"route": rt, "dr_error": _dr_error, "planned_knots": chart.planned_knots, "follow": route_follow, "track": chart.track,
 			"ice": chart.reported_ice.map(func(r: Dictionary) -> Dictionary: return {"pos": SaveSystem.v3(r["pos"]), "r": r["r"], "keel": r["keel"], "t": r["t"], "id": r["id"]})},
@@ -2622,6 +2906,7 @@ func apply_state(d: Dictionary) -> void:
 	crew.load_state(d.get("crew", {}))
 	conscience.load_state(d.get("conscience", {}))
 	standing.load_state(d.get("standing", {}))
+	pursuit.load_state(d.get("pursuit", {}))
 	encounter.load_state(d.get("encounter", {}))
 	captain_log.load_state(d.get("log", {}))
 	var nav: Dictionary = d.get("nav", {})
@@ -2654,6 +2939,8 @@ func apply_state(d: Dictionary) -> void:
 	crew.advance(0.0)
 	_place_crew()
 	hud.toast("CAMPAIGN LOADED  ·  %s" % clock.time_string())
+	if _capture.is_empty() and _sim_hours <= 0.0:
+		open_briefing(true)
 
 
 # --- command bar ---------------------------------------------------------------------------
@@ -2678,6 +2965,10 @@ func _on_bar_request(id: String) -> void:
 				call("open_intel")
 		"menu":
 			hud.toggle_pause()
+		"advance":
+			_toggle_advance()
+		"brief":
+			open_briefing(false, true)
 		"time_up":
 			_set_time_level(clock.level + 1)
 		"time_down":
@@ -2688,6 +2979,8 @@ func time_label() -> String:
 	var t := str(int(clock.scale()))
 	if _fast_wp:
 		t += " ▸WP"
+	if _advance:
+		t += " ▸▸"
 	return t
 
 
@@ -2703,6 +2996,10 @@ func status_flags() -> String:
 		f.append("SILENT RUNNING")
 	if _battle:
 		f.append("BATTLE STATIONS")
+	if pursuit.level > 0:
+		f.append(PursuitAssessment.SHORT[pursuit.level])
+	if _advance:
+		f.append("ADVANCING UNTIL EVENT (J STOPS)")
 	if sub.diesels_running and not sub.is_surfaced():
 		f.append("SNORKELLING")
 	if sub.depth > Submarine.SAFE_DEPTH:
@@ -2937,7 +3234,7 @@ func _run_simulation() -> void:
 func _begin_shot() -> void:
 	game_menu.visible = false
 	in_main_menu = false
-	for o in [dev_panel, log_view, contact_list, intel_view, hud.pause_menu]:
+	for o in [dev_panel, log_view, contact_list, intel_view, hud.pause_menu, briefing_panel]:
 		(o as Control).visible = false
 	var spec: PackedStringArray = _capture[0]
 	var v := int(spec[0])
@@ -3011,6 +3308,15 @@ func _begin_shot() -> void:
 				aim_role = "traffic:" + kv[1]
 			"berg":
 				dev_hazard("berg")
+			"find":
+				# A chart search: find=QUERY (shows the results and takes the first).
+				chart.set("_follow", false)
+				var cs: LineEdit = chart.get("_search")
+				cs.text = kv[1]
+				var found: Array[Dictionary] = chart.search(kv[1])
+				chart.call("_show_results", found)
+				if not found.is_empty():
+					chart.select_result(found[0])
 			"itab":
 				intel_view.tab = kv[1]
 				intel_view.selected = ""
@@ -3039,6 +3345,13 @@ func _begin_shot() -> void:
 			"pausemenu":
 				hud.pause_menu.has_campaign = true
 				hud.pause_menu.open("pause")
+			"brief":
+				open_briefing(false, true)
+			"legend":
+				if not chart.legend_open:
+					chart.toggle_legend()
+			"advance":
+				_toggle_advance()
 			"dev":
 				dev_panel.toggle()
 			"poker":

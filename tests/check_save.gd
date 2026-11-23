@@ -18,7 +18,9 @@ func _initialize() -> void:
 	main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
 	steps = [
-		func() -> void: main.call("_begin_patrol"),
+		func() -> void:
+			main.call("_begin_patrol")
+			main.briefing_panel.dismiss(),
 		func() -> void:
 			# Make the state distinctive.
 			main.clock.seconds += 3.0 * 3600.0

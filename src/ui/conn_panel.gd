@@ -79,7 +79,10 @@ func _process(_delta: float) -> void:
 	if t:
 		lines.append("TORP    RUNNING %d S · %.1f KM" % [int(t.travelled / Torpedo.RUN_SPEED), t.travelled / 1000.0])
 	if main.clock.level > 0:
-		lines.append("TIME    x %d" % int(main.clock.scale()))
+		lines.append("TIME    x %d%s" % [int(main.clock.scale()), "  ADVANCING TO EVENT" if main.get("_advance") else ""])
+	var pa: PursuitAssessment = main.get("pursuit")
+	if pa:
+		lines.append("HUNTED  %s  (crew assessment)" % ["none indicated", "possible search", "PROBABLE PURSUIT", "CONFIRMED PURSUIT"][pa.level])
 	_status.text = "\n".join(lines)
 	(_buttons["scope"] as Button).text = "M   %s PERISCOPE" % ("LOWER" if sub.masts_up else "RAISE")
 	var in_scope: bool = main.view == 1

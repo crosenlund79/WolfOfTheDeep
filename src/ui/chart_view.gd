@@ -42,6 +42,12 @@ var _panel_text: RichTextLabel
 var _speed_label: Label
 var _follow_btn: Button
 var _night := false
+var _search: LineEdit
+var _results: VBoxContainer
+var _found: Array[Dictionary] = []
+var _highlight := {}                # {pos, label, until_ms}
+var _legend_btn: Button
+var legend_open := false
 
 
 func _ready() -> void:
@@ -49,6 +55,16 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	clip_contents = true
 	_build_panel()
+	_legend_btn = UiStyle.button("LEGEND  ▸  (G)", 12)
+	UiStyle.place(_legend_btn, Vector2(0, 0), Vector2(16, 90), Vector2(150, 0))
+	_legend_btn.pressed.connect(toggle_legend)
+	add_child(_legend_btn)
+
+
+func toggle_legend() -> void:
+	legend_open = not legend_open
+	_legend_btn.text = "LEGEND  ▾  (G)" if legend_open else "LEGEND  ▸  (G)"
+	queue_redraw()
 
 
 func build_texture() -> void:
@@ -91,6 +107,26 @@ func _build_panel() -> void:
 	v.add_theme_constant_override("separation", 6)
 	_panel.add_child(v)
 	v.add_child(UiStyle.label("NAVIGATION  ·  LT CHEN", 16, UiStyle.CYAN))
+	_search = LineEdit.new()
+	_search.placeholder_text = "Find on the chart (F): place, hazard, contact, WP…"
+	_search.clear_button_enabled = true
+	_search.add_theme_font_override("font", UiStyle.mono())
+	_search.add_theme_font_size_override("font_size", 12)
+	_search.text_changed.connect(func(t: String) -> void: _show_results(search(t)))
+	_search.text_submitted.connect(func(_t: String) -> void:
+		if not _found.is_empty():
+			select_result(_found[0]))
+	_search.gui_input.connect(func(e: InputEvent) -> void:
+		var k := e as InputEventKey
+		if k and k.pressed and k.keycode == KEY_ESCAPE:
+			_search.text = ""
+			_show_results([])
+			_search.release_focus()
+			_search.accept_event())
+	v.add_child(_search)
+	_results = VBoxContainer.new()
+	_results.add_theme_constant_override("separation", 2)
+	v.add_child(_results)
 	_panel_text = RichTextLabel.new()
 	_panel_text.bbcode_enabled = true
 	_panel_text.fit_content = true
@@ -198,6 +234,7 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func _select_at(sp: Vector2, w: Vector3) -> void:
+	_highlight = {}
 	if sensors:
 		for c in sensors.contacts:
 			if c.kind == "VESSEL" and c.range_err <= 0.3 and world_to_screen(c.est_pos).distance_to(sp) < 12.0:
@@ -214,6 +251,13 @@ func select_contact(id: String) -> void:
 
 func handle_key(k: int) -> bool:
 	match k:
+		KEY_F:
+			_search.grab_focus()
+			_search.select_all()
+			return true
+		KEY_G:
+			toggle_legend()
+			return true
 		KEY_C:
 			_follow = true
 			return true
@@ -239,7 +283,137 @@ func set_chart_scale(mpp: float) -> void:
 
 
 func hint_text() -> String:
-	return "CLICK  SELECT   ·   DOUBLE-CLICK / ENTER  STEER FOR IT   ·   SHIFT+CLICK  WAYPOINT   ·   BACKSPACE  REMOVE LAST   ·   WHEEL  ZOOM   ·   RIGHT-DRAG  PAN   ·   C  CENTRE   ·   N  FAST TO NEXT WAYPOINT"
+	return "F  FIND   ·   G  LEGEND   ·   CLICK  SELECT   ·   DOUBLE-CLICK / ENTER  STEER FOR IT   ·   SHIFT+CLICK  WAYPOINT   ·   BACKSPACE  REMOVE LAST   ·   WHEEL  ZOOM   ·   RIGHT-DRAG  PAN   ·   C  CENTRE   ·   N  FAST TO NEXT WAYPOINT"
+
+
+# --- search --------------------------------------------------------------------------
+
+## Folds case and the Nordic letters, so "storoya" finds STORØYA.
+static func fold(t: String) -> String:
+	return t.to_lower().replace("ø", "o").replace("å", "a").replace("æ", "ae").replace("ö", "o").replace("ä", "a").replace("é", "e")
+
+
+## Everything on the chart that can be searched for: only what the chart
+## already shows (charted features, the boat's own plot and reports). Nothing
+## the boat does not know is ever listed.
+func searchable() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var geo := area.geo
+	var kind_txt := {"island": "island", "trough": "trough", "bank": "bank", "ridge": "ridge", "shoal": "shoal",
+		"basin": "basin", "slope": "slope", "strait": "strait"}
+	for n in geo.names:
+		var nm := String(n["text"])
+		out.append({"label": nm, "kind": String(kind_txt.get(String(n["kind"]), "feature")),
+			"pos": Vector3((n["pos"] as Vector2).x, 0.0, (n["pos"] as Vector2).y), "zoom": 120.0 if String(n["kind"]) == "island" else 150.0})
+	for pl in geo.places:
+		var kt := {"harbour": "harbour, port", "station": "station", "naval": "naval anchorage, naval facility, port"}
+		out.append({"label": String(pl["text"]), "kind": String(kt.get(String(pl["kind"]), "place")), "detail": String(pl["note"]),
+			"pos": Vector3((pl["pos"] as Vector2).x, 0.0, (pl["pos"] as Vector2).y), "zoom": 30.0})
+	for h in geo.hazards:
+		var hk := String(h["kind"])
+		var nm2 := String(h.get("name", ""))
+		var lab := "%s %d m" % [{"rock": "Rock", "shoal": "Shoal", "wreck": "Wreck", "obstruction": "Obstruction"}.get(hk, "Hazard"), int(float(h["depth"]))]
+		if nm2 != "" and nm2 not in ["Wk", "Obstn"]:
+			lab = "%s (%s)" % [nm2, lab.to_lower()]
+		var hp := Vector3((h["pos"] as Vector2).x, 0.0, (h["pos"] as Vector2).y)
+		out.append({"label": lab, "kind": "hazard, danger", "detail": Geography.latlon_text(hp.x, hp.z), "pos": hp, "zoom": 25.0})
+	if sector_radius > 0.0:
+		out.append({"label": "PATROL SECTOR KESTREL", "kind": "navigation area, sector, patrol", "pos": sector_center, "zoom": 60.0})
+	out.append({"label": "RV HOME", "kind": "rendezvous, navigation area", "pos": rv_point, "zoom": 40.0})
+	var ice_x := sub.global_position.x if sub else 0.0
+	out.append({"label": "PACK ICE LIMIT (nearest)", "kind": "ice, navigation area, restricted", "pos": Vector3(ice_x, 0.0, area.geo.ice_edge_z(ice_x)), "zoom": 150.0})
+	for i in route.size():
+		out.append({"label": "WP%d" % (i + 1), "kind": "waypoint, route", "pos": route[i], "zoom": 40.0})
+	for m in marks:
+		out.append({"label": String(m["label"]), "kind": "mark", "pos": m["pos"], "zoom": 40.0})
+	if sensors:
+		for c in sensors.contacts:
+			if c.kind == "ICE":
+				out.append({"label": "%s iceberg" % c.id, "kind": "ice, iceberg, contact", "pos": c.est_pos, "zoom": 10.0})
+			elif c.kind == "VESSEL" and c.range_err <= 0.3:
+				out.append({"label": "%s %s" % [c.id, c.label()], "kind": "contact, " + c.affiliation.to_lower() + (", lost" if c.status == "LOST" else ""),
+					"pos": c.est_pos, "id": c.id, "zoom": 30.0})
+	for m2 in intel_marks:
+		out.append({"label": String(m2.get("label", "")), "kind": "reported unit, intelligence", "pos": m2["pos"], "zoom": 300.0})
+	for a in aircraft_marks:
+		if not a.has("from"):
+			out.append({"label": String(a.get("label", "aircraft")), "kind": "aircraft", "pos": a["pos"], "zoom": 200.0})
+	for r in reported_ice:
+		out.append({"label": "%s reported iceberg" % String(r["id"]), "kind": "ice, iceberg, report", "pos": r["pos"], "zoom": 25.0})
+	return out
+
+
+## Matches for a query, best first (the exact name, a name starting with
+## it, containing it, then by kind), nearest first within each.
+func search(q: String) -> Array[Dictionary]:
+	var res: Array[Dictionary] = []
+	var f := fold(q.strip_edges())
+	if f.length() < 2:
+		return res
+	var own := sub.global_position if sub else Vector3.ZERO
+	for e in searchable():
+		var lab := fold(String(e["label"]))
+		var rank := -1
+		if lab == f:
+			rank = 0
+		elif lab.begins_with(f):
+			rank = 1
+		elif lab.contains(f):
+			rank = 2
+		elif fold(String(e["kind"])).contains(f) or fold(String(e.get("detail", ""))).contains(f):
+			rank = 3
+		if rank < 0:
+			continue
+		var r := e.duplicate()
+		r["rank"] = rank
+		r["dist"] = Vector2((e["pos"] as Vector3).x - own.x, (e["pos"] as Vector3).z - own.z).length()
+		res.append(r)
+	res.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if int(a["rank"]) != int(b["rank"]):
+			return int(a["rank"]) < int(b["rank"])
+		return float(a["dist"]) < float(b["dist"]))
+	return res
+
+
+func _show_results(list: Array[Dictionary]) -> void:
+	_found = list
+	for ch in _results.get_children():
+		ch.queue_free()
+	if _search.text.strip_edges().length() >= 2 and list.is_empty():
+		_results.add_child(UiStyle.label("Nothing charted or plotted by that name.", 12, UiStyle.DIM))
+	for i in mini(list.size(), 8):
+		var r: Dictionary = list[i]
+		var own := sub.global_position
+		var rel := (r["pos"] as Vector3) - own
+		var brg := fposmod(rad_to_deg(atan2(rel.x, -rel.z)), 360.0)
+		var b := UiStyle.button("%s   ·   %s   %03d°  %.0f nm" % [String(r["label"]), String(r["kind"]).split(",")[0], int(brg), float(r["dist"]) / NM], 11)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.clip_text = true
+		b.custom_minimum_size = Vector2(376, 0)
+		b.pressed.connect(func() -> void: select_result(r))
+		_results.add_child(b)
+	if list.size() > 8:
+		_results.add_child(UiStyle.label("… and %d more: type more of the name" % (list.size() - 8), 11, UiStyle.DIM))
+
+
+## Centre the chart on a result and mark it.
+func select_result(r: Dictionary) -> void:
+	var p: Vector3 = r["pos"]
+	_follow = false
+	_center = Vector2(p.x, p.z)
+	_mpp = clampf(float(r.get("zoom", 40.0)), 3.0, 1400.0)
+	if r.has("id"):
+		_selected = {"kind": "contact", "pos": p, "id": String(r["id"])}
+	else:
+		_selected = {"kind": "point", "pos": Vector3(p.x, 0.0, p.z)}
+	_highlight = {"pos": p, "label": String(r["label"]), "until": Time.get_ticks_msec() + 8000}
+	if _search.has_focus():
+		_search.release_focus()
+	queue_redraw()
+
+
+func highlighted() -> Dictionary:
+	return _highlight
 
 
 func _exit_tree() -> void:
@@ -471,6 +645,7 @@ func _draw() -> void:
 	_draw_graticule(view, f, ink)
 	_draw_names(fd, ink, night)
 	_draw_hazards(f, ink, night)
+	_draw_places(fd, ink, night)
 	_draw_patrol(fd)
 	_draw_track_and_route(f, night)
 	if sensors:
@@ -482,8 +657,11 @@ func _draw() -> void:
 		_draw_aircraft(a, f)
 	_draw_ownship()
 	_draw_selection()
+	_draw_highlight(fd)
 	_draw_scale(f, ink)
 	_draw_cursor(f, ink)
+	if legend_open:
+		_draw_legend(f, ink, night)
 	if data.busy():
 		draw_string(f, Vector2(24, 100), "LOADING CHART DETAIL…", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(ink.r, ink.g, ink.b, 0.6))
 
@@ -593,25 +771,205 @@ func _draw_hazards(f: Font, ink: Color, night: bool) -> void:
 		var d := float(h["depth"])
 		match kind:
 			"rock":
-				draw_line(p - Vector2(5, 0), p + Vector2(5, 0), danger, 1.5)
-				draw_line(p - Vector2(0, 5), p + Vector2(0, 5), danger, 1.5)
+				_hazard_glyph(p, kind, ink, danger, _mpp < 200.0)
 				if _mpp < 200.0:
-					draw_arc(p, 9.0, 0.0, TAU, 20, Color(danger.r, danger.g, danger.b, 0.5), 1.0)
 					draw_string(f, p + Vector2(8, -6), "%d" % int(d), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, danger)
 			"shoal":
-				draw_arc(p, 7.0, 0.0, TAU, 16, danger, 1.2)
+				_hazard_glyph(p, kind, ink, danger)
 				if _mpp < 400.0:
 					draw_string(f, p + Vector2(9, 4), "%d" % int(d), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, danger)
 			"wreck":
 				if _mpp < 300.0:
-					draw_line(p - Vector2(7, 0), p + Vector2(7, 0), ink, 1.2)
-					draw_line(p - Vector2(3, 4), p + Vector2(-3, -4), ink, 1.0)
-					draw_line(p - Vector2(-3, 4), p + Vector2(3, -4), ink, 1.0)
+					_hazard_glyph(p, kind, ink, danger)
 					draw_string(f, p + Vector2(10, 4), "Wk %d" % int(d), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, ink)
 			"obstruction":
 				if _mpp < 300.0:
-					draw_arc(p, 6.0, 0.0, TAU, 14, ink, 1.0)
+					_hazard_glyph(p, kind, ink, danger)
 					draw_string(f, p + Vector2(9, 4), "Obstn %d" % int(d), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, ink)
+
+
+func _hazard_glyph(p: Vector2, kind: String, ink: Color, danger: Color, ring: bool = true) -> void:
+	match kind:
+		"rock":
+			draw_line(p - Vector2(5, 0), p + Vector2(5, 0), danger, 1.5)
+			draw_line(p - Vector2(0, 5), p + Vector2(0, 5), danger, 1.5)
+			if ring:
+				draw_arc(p, 9.0, 0.0, TAU, 20, Color(danger.r, danger.g, danger.b, 0.5), 1.0)
+		"shoal":
+			draw_arc(p, 7.0, 0.0, TAU, 16, danger, 1.2)
+		"wreck":
+			draw_line(p - Vector2(7, 0), p + Vector2(7, 0), ink, 1.2)
+			draw_line(p - Vector2(3, 4), p + Vector2(-3, -4), ink, 1.0)
+			draw_line(p - Vector2(-3, 4), p + Vector2(3, -4), ink, 1.0)
+		"obstruction":
+			draw_arc(p, 6.0, 0.0, TAU, 14, ink, 1.0)
+
+
+func _place_colors(night: bool) -> Color:
+	return Color(0.42, 0.22, 0.05) if not night else Color(0.95, 0.72, 0.45)
+
+
+## Harbour: an anchor. Station: a mast (circle and dot). Naval anchorage:
+## an anchor in a square.
+func _place_glyph(p: Vector2, kind: String, col: Color) -> void:
+	match kind:
+		"harbour", "naval":
+			draw_line(p + Vector2(0, -6), p + Vector2(0, 5), col, 1.5)
+			draw_line(p + Vector2(-4, -3), p + Vector2(4, -3), col, 1.5)
+			draw_arc(p + Vector2(0, 1), 5.0, 0.15, PI - 0.15, 10, col, 1.5)
+			draw_arc(p + Vector2(0, -7.5), 1.6, 0.0, TAU, 8, col, 1.2)
+			if kind == "naval":
+				draw_rect(Rect2(p - Vector2(9, 11), Vector2(18, 20)), col, false, 1.2)
+		_:
+			draw_arc(p, 5.5, 0.0, TAU, 16, col, 1.5)
+			draw_circle(p, 1.8, col)
+
+
+func _draw_places(fd: Font, _ink: Color, night: bool) -> void:
+	var col := _place_colors(night)
+	for pl in area.geo.places:
+		var p := w2s((pl["pos"] as Vector2).x, (pl["pos"] as Vector2).y)
+		if p.x < -40.0 or p.x > size.x + 40.0 or p.y < -40.0 or p.y > size.y + 40.0:
+			continue
+		_place_glyph(p, String(pl["kind"]), col)
+		if _mpp < 400.0:
+			draw_string(fd, p + Vector2(12, 4), String(pl["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
+
+
+## A search result: a ring (pulsing for the first few seconds) and its name,
+## kept until something else is selected.
+func _draw_highlight(fd: Font) -> void:
+	if _highlight.is_empty():
+		return
+	var p := world_to_screen(_highlight["pos"])
+	var col := Color(0.95, 0.5, 0.0) if not _night else Color(1.0, 0.55, 0.35)
+	if Time.get_ticks_msec() < int(_highlight["until"]):
+		var ph := fposmod(float(Time.get_ticks_msec()) / 700.0, 1.0)
+		draw_arc(p, 14.0 + ph * 22.0, 0.0, TAU, 40, Color(col.r, col.g, col.b, 1.0 - ph), 2.5)
+	draw_arc(p, 18.0, 0.0, TAU, 32, col, 2.0)
+	var txt := "▸ " + String(_highlight["label"])
+	var w := fd.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+	var bg := Color(1, 1, 1, 0.85) if not _night else Color(0, 0, 0, 0.8)
+	draw_rect(Rect2(p + Vector2(22, -40), Vector2(w + 12, 22)), bg)
+	draw_string(fd, p + Vector2(28, -24), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
+
+
+## The legend: every symbol drawn by the same code as on the chart, each with
+## words (never colour alone), in the chart's day or low-light colours.
+func _draw_legend(f: Font, ink: Color, night: bool) -> void:
+	var danger := Color(0.75, 0.1, 0.45) if not night else Color(1.0, 0.45, 0.5)
+	var own_col := Color(0.0, 0.45, 0.75) if not night else Color(0.45, 0.85, 1.0)
+	var route_col := Color(0.8, 0.15, 0.55) if not night else Color(1.0, 0.5, 0.75)
+	var ice_col := Color(0.25, 0.45, 0.8, 0.85) if not night else Color(0.55, 0.7, 0.95, 0.8)
+	var contour := Color(0.15, 0.4, 0.7, 0.6) if not night else Color(0.4, 0.55, 0.75, 0.55)
+	var rows := [
+		["own", "Own boat, heading; circle: position uncertainty"],
+		["ordered", "Ordered course"],
+		["route", "Planned route and waypoint"],
+		["head", "OWN BOAT'S CONTACTS (shape = assessment)"],
+		["hostile", "Hostile (filled diamond)"],
+		["suspect", "Suspect (open diamond)"],
+		["neutral", "Neutral (square)"],
+		["friendly", "Friendly (circle)"],
+		["unknown", "Unknown (four rings)"],
+		["ellipse", "Area she is probably in; line: her course"],
+		["bearing", "Bearing only, no range yet"],
+		["intel", "Unit known only from a report; ring: doubt"],
+		["air", "Aircraft (filled: seen; open: estimated)"],
+		["head", "ICE"],
+		["berg", "Iceberg held on sonar or seen"],
+		["berg_rep", "Iceberg from an ice report (older)"],
+		["ice", "Pack ice limit: no surfacing beyond"],
+		["head", "CHART"],
+		["rock", "Rock, depth over it in metres"],
+		["shoal", "Shoal"],
+		["wreck", "Wreck"],
+		["obstruction", "Obstruction"],
+		["contour", "20 and 50 m depth contours"],
+		["sounding", "Sounding (depth in metres)"],
+		["harbour", "Harbour"],
+		["station", "Station"],
+		["naval", "Naval anchorage"],
+		["sector", "Patrol sector"],
+		["rv", "Rendezvous"],
+		["select", "Selection / search result"],
+	]
+	var o := Vector2(16, 126)
+	var h := 18.0
+	var box := Rect2(o, Vector2(380, rows.size() * h + 16))
+	draw_rect(box, Color(1, 1, 1, 0.92) if not night else Color(0.0, 0.0, 0.0, 0.88))
+	draw_rect(box, Color(ink.r, ink.g, ink.b, 0.5), false, 1.0)
+	var y := o.y + 16.0
+	for r in rows:
+		var id := String(r[0])
+		var p := Vector2(o.x + 26, y - 4)
+		var ccol := Settings.contact_color(id)
+		if not night:
+			ccol = ccol.darkened(0.25)
+		match id:
+			"head":
+				draw_string(UiStyle.display(), Vector2(o.x + 10, y), String(r[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(ink.r, ink.g, ink.b, 0.7))
+				y += h
+				continue
+			"own":
+				draw_arc(p, 8.0, 0.0, TAU, 20, Color(own_col.r, own_col.g, own_col.b, 0.5), 1.0)
+				draw_colored_polygon(PackedVector2Array([p + Vector2(0, -8), p + Vector2(5, 5), p + Vector2(-5, 5)]), own_col)
+			"ordered":
+				draw_dashed_line(p - Vector2(12, 0), p + Vector2(12, 0), Color(own_col.r, own_col.g, own_col.b, 0.55), 1.5, 5.0)
+			"route":
+				draw_dashed_line(p - Vector2(14, 0), p + Vector2(6, 0), route_col, 2.0, 5.0)
+				draw_arc(p + Vector2(8, 0), 5.0, 0.0, TAU, 14, route_col, 2.0)
+			"hostile", "suspect", "neutral", "friendly", "unknown":
+				_shape(p, id, ccol)
+			"ellipse":
+				var uc := Settings.contact_color("unknown")
+				if not night:
+					uc = uc.darkened(0.25)
+				var pts := PackedVector2Array()
+				for k in 25:
+					var a := TAU * float(k) / 24.0
+					pts.append(p + Vector2(cos(a) * 11.0, sin(a) * 4.5))
+				draw_polyline(pts, Color(uc.r, uc.g, uc.b, 0.6), 1.0)
+				draw_line(p, p + Vector2(12, -6), uc, 1.5)
+			"bearing":
+				var uc2 := Settings.contact_color("unknown")
+				draw_line(p - Vector2(14, 4), p + Vector2(14, -4), Color(uc2.r, uc2.g, uc2.b, 0.6), 1.0)
+			"intel":
+				var ic := Color(0.5, 0.5, 0.5) if not night else Color(0.75, 0.55, 0.5)
+				draw_arc(p, 9.0, 0.0, TAU, 20, Color(ic.r, ic.g, ic.b, 0.4), 1.0)
+				draw_polyline(PackedVector2Array([p + Vector2(0, -6), p + Vector2(6, 0), p + Vector2(0, 6), p + Vector2(-6, 0), p + Vector2(0, -6)]), ic, 1.5)
+			"air":
+				var ac := Color(0.6, 0.3, 0.1) if not night else Color(1.0, 0.6, 0.4)
+				_air_glyph(p + Vector2(-8, 0), ac, true)
+				_air_glyph(p + Vector2(10, 0), ac, false)
+			"berg":
+				_berg_glyph(p, Color(0.2, 0.4, 0.75) if not night else Color(0.55, 0.7, 0.95))
+			"berg_rep":
+				draw_arc(p, 9.0, 0.0, TAU, 20, Color(ice_col.r, ice_col.g, ice_col.b, 0.35), 1.0)
+				_berg_glyph(p, Color(ice_col.r, ice_col.g, ice_col.b, 0.65))
+			"ice":
+				draw_line(p - Vector2(14, 0), p - Vector2(4, 0), ice_col, 1.6)
+				draw_line(p + Vector2(2, 0), p + Vector2(12, 0), ice_col, 1.6)
+				draw_line(p + Vector2(-6, -2), p + Vector2(0, -8), Color(ice_col.r, ice_col.g, ice_col.b, 0.35), 1.0)
+			"rock", "shoal", "wreck", "obstruction":
+				_hazard_glyph(p, id, ink, danger, false)
+			"contour":
+				draw_line(p - Vector2(14, -2), p + Vector2(14, 2), contour, 1.0)
+			"sounding":
+				draw_string(f, p + Vector2(-8, 4), "37", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.22, 0.28, 0.36) if not night else Color(0.62, 0.5, 0.42))
+			"harbour", "station", "naval":
+				_place_glyph(p, id, _place_colors(night))
+			"sector":
+				draw_arc(p + Vector2(0, 14), 16.0, deg_to_rad(235), deg_to_rad(305), 12, Color(0.95, 0.55, 0.1, 0.8), 2.0)
+			"rv":
+				draw_arc(p, 6.0, 0.0, TAU, 16, Color(0.1, 0.6, 0.3), 2.0)
+			"select":
+				var sc := Color(0.9, 0.4, 0.0)
+				draw_arc(p, 7.0, 0.0, TAU, 18, sc, 1.5)
+				for d in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, -1), Vector2(0, 1)]:
+					draw_line(p + d * 6.0, p + d * 11.0, sc, 1.5)
+		draw_string(f, Vector2(o.x + 50, y), String(r[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, ink)
+		y += h
 
 
 func _draw_ice(view: Rect2, night: bool) -> void:
@@ -777,12 +1135,16 @@ func _draw_aircraft(a: Dictionary, f: Font) -> void:
 		draw_dashed_line(o, far, Color(col.r, col.g, col.b, 0.55), 1.0, 6.0)
 	elif kind == "lkp" or kind == "suspected":
 		draw_arc(p, clampf(float(a.get("unc", 2000.0)) / _mpp, 6.0, 260.0), 0.0, TAU, 32, Color(col.r, col.g, col.b, 0.4), 1.0)
+	_air_glyph(p, col, kind == "confirmed")
+	draw_string(f, p + Vector2(10, -6), String(a.get("label", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
+
+
+func _air_glyph(p: Vector2, col: Color, filled: bool) -> void:
 	var pts := PackedVector2Array([p + Vector2(0, -8), p + Vector2(7, 4), p + Vector2(0, 1), p + Vector2(-7, 4), p + Vector2(0, -8)])
-	if kind == "confirmed":
+	if filled:
 		draw_colored_polygon(pts, col)
 	else:
 		draw_polyline(pts, col, 1.5)
-	draw_string(f, p + Vector2(10, -6), String(a.get("label", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
 
 
 ## A unit known only from a report: hollow diamond, a circle of doubt that
