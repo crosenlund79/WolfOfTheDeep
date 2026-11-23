@@ -100,7 +100,7 @@ func open_unit(id: String) -> void:
 static func _age(now: float, t: float) -> String:
 	if t < 0.0:
 		return "-"
-	var h := (now - t) / 3600.0
+	var h := maxf(now - t, 0.0) / 3600.0
 	return "%d min" % int(h * 60.0) if h < 1.0 else ("%.0f h" % h if h < 48.0 else "%.0f d" % (h / 24.0))
 
 
