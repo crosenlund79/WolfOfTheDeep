@@ -70,7 +70,7 @@ func _ready() -> void:
 	var spacer := Control.new()
 	spacer.custom_minimum_size = Vector2(14, 0)
 	row.add_child(spacer)
-	_values = UiStyle.label("", 14, UiStyle.WHITE, UiStyle.mono())
+	_values = UiStyle.label("", 13, UiStyle.WHITE, UiStyle.mono())
 	_values.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_values.clip_text = true
 	_values.vertical_alignment = VERTICAL_ALIGNMENT_CENTER

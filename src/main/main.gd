@@ -67,6 +67,10 @@ var log_view: LogView
 var game_menu: GameMenu
 var dev_panel: DevPanel
 var briefing_panel: BriefingPanel
+var scenario: TestScenario = null       # a test scenario instead of the campaign
+var _scenario_hud: PanelContainer
+var _scenario_text: RichTextLabel
+var _scenario_t := 0.0
 var unlimited_weapons := false
 var in_main_menu := false
 var _autosave_t := 0.0
@@ -356,6 +360,8 @@ func _ready() -> void:
 			"load":
 				if not _load_game(String(pend.get("path", ""))):
 					_show_main_menu()
+			"scenario":
+				_begin_scenario(pend.get("cfg", {}))
 			_:
 				_show_main_menu()
 
@@ -583,6 +589,11 @@ func _process(delta: float) -> void:
 	if started:
 		_playtime += real_dt
 	command_bar.visible = started and not in_main_menu and not asleep and not poker.visible and view != View.CINEMATIC
+	if scenario:
+		_scenario_t -= real_dt
+		if _scenario_t <= 0.0:
+			_scenario_t = 0.5
+			_update_scenario_hud()
 	captain_log.watch_active = watch.active
 	_tick_rest(real_dt)
 	var scale := 1.0
@@ -653,7 +664,8 @@ func _sim_step(h: float) -> void:
 	sensors.advance(h)
 	crew.advance(h)
 	watch.advance(h)
-	story.advance(h)
+	if scenario == null:
+		story.advance(h)
 	_slow_acc += h
 	if _slow_acc >= 2.0:
 		_slow_acc -= 2.0
@@ -661,7 +673,10 @@ func _sim_step(h: float) -> void:
 
 
 func _slow_tick(dt: float) -> void:
-	patrol.advance(dt)
+	if scenario == null:
+		patrol.advance(dt)
+	else:
+		scenario.advance(self, dt)
 	if started and not in_main_menu:
 		_autosave_t += dt
 		var mins := int(Settings.get_v("autosave_minutes"))
@@ -958,6 +973,67 @@ func time_cap() -> int:
 	return GameClock.LEVELS.size() - 1
 
 
+# --- test scenarios ----------------------------------------------------------------
+
+func _begin_scenario(cfg: Dictionary) -> void:
+	scenario = TestScenario.new()
+	started = true
+	in_main_menu = false
+	game_menu.visible = false
+	command_bar.visible = true
+	audio.stop_music()
+	# Not the campaign: the story and the patrol's orders stay out of it.
+	patrol.objectives.clear()
+	patrol.objectives.append({"id": "scenario", "text": "", "done": false, "failed": false})
+	patrol.pending.clear()
+	patrol.received.clear()
+	scenario.build(self, cfg)
+	patrol.objectives[0]["text"] = scenario.objective_text()
+	crew.advance(0.0)
+	_place_crew()
+	_apply_settings()
+	set_view(View.CONTROL)
+	_scenario_hud = PanelContainer.new()
+	_scenario_hud.add_theme_stylebox_override("panel", UiStyle.panel_style(0.72, 10))
+	UiStyle.place(_scenario_hud, Vector2(0, 1), Vector2(16, -300), Vector2(584, 0))
+	_scenario_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_scenario_text = RichTextLabel.new()
+	_scenario_text.bbcode_enabled = false
+	_scenario_text.fit_content = true
+	_scenario_text.custom_minimum_size = Vector2(564, 0)
+	_scenario_text.add_theme_font_override("normal_font", UiStyle.mono())
+	_scenario_text.add_theme_font_size_override("normal_font_size", 11)
+	_scenario_text.add_theme_color_override("default_color", UiStyle.AMBER)
+	_scenario_text.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_scenario_hud.add_child(_scenario_text)
+	command_bar.get_parent().add_child(_scenario_hud)
+	_update_scenario_hud()
+	clog("DECISIONS", "Test scenario: %s. Not the campaign; nothing is saved." % scenario.title(), "confirmed")
+	hud.toast("TEST SCENARIO  ·  %s  ·  F8 RESTART  ·  F7 DIAGNOSTICS" % scenario.title().to_upper())
+	if _capture.is_empty():
+		open_briefing(false)
+
+
+func restart_scenario() -> void:
+	if scenario == null:
+		return
+	SaveSystem.pending = {"action": "scenario", "cfg": scenario.cfg.duplicate()}
+	_reload()
+
+
+func _update_scenario_hud() -> void:
+	if scenario == null or _scenario_text == null:
+		return
+	var t := "TEST SCENARIO  ·  %s  ·  F8 RESTART  ·  F7 DIAGNOSTICS\n" % scenario.title().to_upper()
+	if not patrol.objectives.is_empty():
+		var o: Dictionary = patrol.objectives[0]
+		t += "%s %s\n" % ["DONE ·" if bool(o["done"]) else "·", String(o["text"])]
+	if bool(_scenario_text.get_meta("diag", true)):
+		t += scenario.diagnostics(self)
+	_scenario_text.text = t.strip_edges()
+	_scenario_hud.visible = started and not in_main_menu and not asleep and not poker.visible and not (view == View.CHART and chart.legend_open)
+
+
 # --- mission briefing --------------------------------------------------------------
 
 func open_briefing(loaded: bool, reopened: bool = false) -> void:
@@ -986,6 +1062,13 @@ static func _clip(t: String, n: int) -> String:
 ## the objectives as given, the boat's own plot and reports, the log and the
 ## boat's state. Nothing pending, hidden or planned is consulted.
 func briefing(loaded: bool = false, reopened: bool = false) -> Dictionary:
+	if scenario:
+		return {"title": "TEST SCENARIO  ·  %s" % scenario.title().to_upper(), "subtitle": "Not the campaign: nothing here is saved and the story is switched off.",
+			"sections": [["THE SCENARIO", [String(TestScenario.PRESETS[scenario.preset]["about"])]],
+				["OBJECTIVE", [String(patrol.objectives[0]["text"]) if not patrol.objectives.is_empty() else scenario.objective_text()]],
+				["SET-UP", scenario.setup_lines()],
+				["TEST CONTROLS", ["F8  restart with the same set-up", "F7  developer diagnostics on or off (the truth about the scenario's units)",
+					"Esc  menu: restart, or back to the main menu", "Torpedo assessments show the exact technical outcome ([DEV] lines)."]]]}
 	var here := sub.global_position
 	var secs: Array = []
 	# Orders.
@@ -1347,9 +1430,14 @@ func _on_pinged(ship: SurfaceShip) -> void:
 		_on_suspicion(ship, ship.suspicion)
 	if c == null:
 		patrol.log_entry("Active sonar transmissions heard, bearing %03d." % int(fposmod(rad_to_deg(brg), 360.0)))
-	if d < 9000.0 and (ship.behavior == "investigate" or ship.ping_detects(sub)) and clock.seconds > float(_cooldowns.get("ping_wake", -1e9)):
+	# A loud, close transmission wakes the captain: judged by ear, not by what
+	# the ship intends or whether the ping found us.
+	if d < 6000.0 and not sub.is_surfaced() and clock.seconds > float(_cooldowns.get("ping_wake", -1e9)):
 		_cooldowns["ping_wake"] = clock.seconds + 5400.0
-		_wake("Active sonar, close. They may have had a sniff of us.")
+		# One wake for one alarm: shared with the pursuit assessment's.
+		if clock.seconds - _pursuit_wake_t > 1800.0:
+			_pursuit_wake_t = clock.seconds
+			_wake("Active sonar, close. They may have had a sniff of us.")
 		_drop_time("active sonar close by")
 
 
@@ -2186,6 +2274,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			_toggle_advance()
 		KEY_F1:
 			open_briefing(false, true)
+		KEY_F8:
+			if scenario:
+				restart_scenario()
+		KEY_F7:
+			if scenario:
+				_scenario_text.set_meta("diag", not bool(_scenario_text.get_meta("diag", true)))
 		KEY_F5:
 			save_game("quick")
 		KEY_F10:
@@ -2742,7 +2836,7 @@ func _close_overlay() -> bool:
 func _apply_settings() -> void:
 	audio.apply_settings()
 	# Exact weapon diagnostics only with the developer tools switched on.
-	encounter.dev_diag = bool(Settings.get_v("developer"))
+	encounter.dev_diag = bool(Settings.get_v("developer")) or scenario != null
 	_performance = String(Settings.get_v("graphics")) == "performance"
 	_apply_quality()
 	var w := get_window()
@@ -2769,6 +2863,11 @@ func on_menu_action(id: String, arg: Variant) -> void:
 		"resume":
 			if hud.is_paused():
 				hud.toggle_pause()
+		"scenario":
+			SaveSystem.pending = {"action": "scenario", "cfg": arg}
+			_reload()
+		"scenario_restart":
+			restart_scenario()
 		"main_menu":
 			_autosave("leaving")
 			SaveSystem.pending = {}
@@ -2794,6 +2893,8 @@ func _reload() -> void:
 func save_blocker() -> String:
 	if not started or in_main_menu:
 		return "No campaign is running."
+	if scenario:
+		return "Test scenarios are not saved."
 	if encounter.torpedo_running():
 		return "Not while a weapon is running."
 	if sub.is_blowing():
@@ -3010,6 +3111,8 @@ func status_flags() -> String:
 		f.append("FIX NEEDED  ±%d M" % int(_dr_error))
 	if bool(Settings.get_v("developer")) and (sub.invulnerable or unlimited_weapons):
 		f.append("TEST MODE")
+	if scenario:
+		f.append("TEST SCENARIO · NOT SAVED")
 	return "   ·   ".join(f)
 
 
@@ -3308,6 +3411,9 @@ func _begin_shot() -> void:
 				aim_role = "traffic:" + kv[1]
 			"berg":
 				dev_hazard("berg")
+			"scen":
+				# A test scenario: scen=preset_id
+				_begin_scenario({"preset": kv[1]})
 			"find":
 				# A chart search: find=QUERY (shows the results and takes the first).
 				chart.set("_follow", false)
@@ -3334,6 +3440,9 @@ func _begin_shot() -> void:
 		match tok:
 			"menu":
 				_show_main_menu()
+			"scenmenu":
+				_show_main_menu()
+				game_menu.show_screen("scenarios")
 			"contacts":
 				contact_list.visible = true
 				contact_list.refresh()

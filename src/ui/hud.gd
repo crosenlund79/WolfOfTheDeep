@@ -165,11 +165,12 @@ ROOM       click a station  ·  right-click back  ·  R red lighting
 HELM       A / D  course -10 / +10 (Shift: 1)   W / S  telegraph
 DEPTH      O  surface  P  periscope depth  Z  deeper  X  shallower
            M  raise / lower masts   B  emergency blow (40 m or deeper)
-CHART      click: steer for that point   Shift+click: add a waypoint
-           right-drag pan  ·  wheel zoom  ·  C  centre  ·  Backspace  clear route
+CHART      click: select  ·  Enter / double-click: steer for it  ·  Shift+click: waypoint
+           F find  ·  G legend  ·  right-drag pan  ·  wheel zoom  ·  C centre
 ORDERS     Tab  orders to the crew (silent running, snorkel, fix, radio,
-           battle stations, the conn, rest, cards)
-TIME       + / -  compression x1 to x50 (drops to x1 on events)
+           battle stations, the conn, rest, cards)  ·  F1  mission briefing
+TIME       + / -  compression x1 to x250 (x4 in action; drops to x1 on events)
+           J  advance until something needs you (J or Esc stops)  ·  N  next waypoint
 CREW       click a person to talk  ·  click things in the rooms
            rest in your cabin (click the bunk)  ·  L  log, orders, messages
 PERISCOPE  drag or Q / E train  ·  wheel zoom  ·  T sensor  ·  Enter mark
@@ -263,7 +264,8 @@ func toggle_pause() -> void:
 	_pause.visible = not _pause.visible
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if _pause.visible:
-		pause_menu.has_campaign = main != null and bool(main.started)
+		pause_menu.has_campaign = main != null and bool(main.started) and main.get("scenario") == null
+		pause_menu.scenario_mode = main != null and main.get("scenario") != null
 		pause_menu.open("pause")
 	get_tree().paused = _pause.visible
 

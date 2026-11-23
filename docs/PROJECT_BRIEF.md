@@ -11,7 +11,7 @@ This brief now records the active game, Wolf of the Deep. This file **records** 
 - **Confirmed mechanics and constraints:** Crew functions bound to replaceable roles, not people; imperfect sensor information; rest and delegation with standing orders; optional, interruptible Texas Hold'em for persistent candy; Basse's singing only in short muffled fragments; inbox recordings are an immutable archive; story spoilers kept in clearly marked internal files only (user, Mission 003)
 - **Explicitly out of scope:** Installer; crew injury or loss implementation (architecture only) (user, Mission 003)
 - **Existing modules / boundaries:** `src/` modules: core (settings, campaign saves), log (Captain's Log), nav (chart data), intel (intelligence database, delayed reports, damage assessment), traffic (regional ships and aircraft), ocean, sky, environment (weather), world (clock, regional geography, terrain streaming, Arctic area and ice), submarine, ships, weapons, encounter, sensors, crew (crew, dialogue, watch officer, figures, conscience), interior, command_room, control_room_pilot, patrol (patrol, command standing, spoiler-marked story), poker, audio, ui, cameras, fx, main (composition and controls)
-- **Testing framework (GUT or GdUnit4) and commands:** Approved exception: practical checks only, no test framework (user, Mission 003). Commands: `godot --headless --path . -s tests/check_poker.gd`, `godot --headless --path . -s tests/check_audio.gd`, and with `--fixed-fps 30`: `tests/check_pause.gd`, `tests/check_control_room.gd`, `tests/check_save.gd`, `tests/check_ui.gd`, `tests/check_world.gd`, `tests/check_intel.gd`, `tests/check_conduct.gd`; `godot --headless --path . -- --sim-hours=62`
+- **Testing framework (GUT or GdUnit4) and commands:** Approved exception: practical checks only, no test framework (user, Mission 003). Commands: `godot --headless --path . -s tests/check_poker.gd`, `godot --headless --path . -s tests/check_audio.gd`, and with `--fixed-fps 30`: `tests/check_pause.gd`, `tests/check_control_room.gd`, `tests/check_save.gd`, `tests/check_ui.gd`, `tests/check_world.gd`, `tests/check_intel.gd`, `tests/check_conduct.gd`, `tests/check_torpedo.gd`, `tests/check_helm.gd`, `tests/check_command.gd`, `tests/check_scenario.gd`; `godot --headless --path . -- --sim-hours=62`
 - **Target platforms:** Windows x64 playtest builds via GitHub Actions (runtime asset overrides cover Windows/Linux; other platforms need an explicit decision)
 - **Asset override notes:** Runtime `custom/` folder overrides required; see `assets/README.md` and `docs/AUDIO_LIBRARY.md`
 
@@ -27,7 +27,17 @@ This brief now records the active game, Wolf of the Deep. This file **records** 
 - **Acceptance criteria / done when:** A playable patrol with an achievable resolution; spoiler-free delivery notes; Windows artifact link, launch instructions, controls and limitations provided.
 - **Relevant checks:** Headless launch; simulated patrol; card-engine and sound-resolution checks; software-rendered screenshots of the main views.
 
-## Current mission (branch `claude/mission-005-living-arctic`)
+## Current mission (branch `claude/mission-006-command-combat`)
+
+**Status: Approved in conversation, 2026-11-23 — Development Mission 006 "Command & Combat Refinement"** (Mission 005 playtest corrections; starts from the delivered Mission 005 commit `0239d09`; not to be merged automatically).
+
+- **Objective (summary):** address the ten playtest observations as a focused refinement, preserving the existing simulation, crew, campaign, intelligence and visuals: submarine turning response; torpedo accuracy investigated through the whole chain; miss explanation by stage and an evidence-based assessment; honest solution-quality terminology; a crew-assessed hunted/pursued status; a searchable chart; a collapsible legend; a ×4 tactical time ceiling and Advance Until Event; a mission briefing on new and loaded campaigns; the cook in the watchbill; test scenarios from the main menu that never touch campaign saves or progression.
+- **Constraints (user):** no hidden enemy information revealed to explain a miss or in the briefing, search or pursuit status; developer diagnostics separate from normal play; no invented hit probabilities; spoiler-free delivery notes.
+- **Recovery checkpoints:** R0 start, R1 handling and torpedo, R2 chart, time and interface, R3 test scenarios and final integration. Each is a verified remote backup branch (`backup/mission-006-r*`); Mission 005 backups are left untouched.
+- **Deliverable:** portable Windows x64 ZIP through GitHub Actions; branch, final SHA, recovery branches, artifact link, fix summary, known limitations, controls and playtest notes.
+- **Delivery notes:** `docs/MISSION_006.md`.
+
+## Previous mission (branch `claude/mission-005-living-arctic`)
 
 **Status: Approved in conversation, 2026-11-23 — Development Mission 005 "The Living Arctic"** (builds on the control room pilot with its visual polish, commit `e78a4cb`; not to be merged automatically).
 

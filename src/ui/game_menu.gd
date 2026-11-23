@@ -8,6 +8,8 @@ signal action(id: String, arg: Variant)
 
 var mode := "main"          # main / pause
 var has_campaign := false   # pause menu only: a campaign is running
+var scenario_mode := false  # pause menu only: a test scenario is running
+var scenario_cfg := {}      # the test scenario being set up
 var _root: VBoxContainer
 var _panel: PanelContainer
 var _screen := "root"
@@ -107,6 +109,8 @@ func show_screen(s: String) -> void:
 			_screen_settings()
 		"developer":
 			_screen_developer()
+		"scenarios":
+			_screen_scenarios()
 
 
 func _screen_root() -> void:
@@ -118,14 +122,18 @@ func _screen_root() -> void:
 			cont.tooltip_text = _describe(last["meta"])
 		_btn("New Campaign", func() -> void: _confirm("Start a new campaign? Your existing saves are kept.", func() -> void: action.emit("new", null)))
 		_btn("Load Game", func() -> void: show_screen("load"), not SaveSystem.list().is_empty())
+		_btn("Test Scenarios", func() -> void: show_screen("scenarios"))
 		_btn("Settings", func() -> void: show_screen("settings"))
 		_btn("Developer / Cheats", func() -> void: show_screen("developer"))
 		_btn("Quit", func() -> void: action.emit("quit", null))
 		if not last.is_empty():
 			_note("Last save:  " + _describe(last["meta"]))
 	else:
-		_heading("PAUSED")
+		_heading("PAUSED" if not scenario_mode else "PAUSED  ·  TEST SCENARIO")
 		_btn("Resume", func() -> void: action.emit("resume", null))
+		if scenario_mode:
+			_btn("Restart Scenario  (F8)", func() -> void: action.emit("scenario_restart", null))
+			_note("Test scenarios are never saved; campaign saves are untouched.")
 		_btn("Save Game", func() -> void: show_screen("save"), has_campaign)
 		_btn("Load Game", func() -> void: show_screen("load"), not SaveSystem.list().is_empty())
 		_btn("Settings", func() -> void: show_screen("settings"))
@@ -272,6 +280,56 @@ func _screen_developer() -> void:
 		action.emit("settings_changed", "developer")
 		show_screen("developer"))
 	_btn("Back", func() -> void: show_screen("root"))
+
+
+## Test scenarios: a preset and its parameters, then start. Never saved.
+func _screen_scenarios() -> void:
+	_layout(760.0)
+	_heading("TEST SCENARIOS")
+	if scenario_cfg.is_empty():
+		scenario_cfg = TestScenario.defaults(TestScenario.ORDER[0])
+	var id := String(scenario_cfg["preset"])
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	for pid in TestScenario.ORDER:
+		var on: bool = pid == id
+		var b := UiStyle.toggle(String(TestScenario.PRESETS[pid]["name"]), on, 13)
+		b.pressed.connect(func() -> void:
+			scenario_cfg = TestScenario.defaults(pid)
+			show_screen("scenarios"))
+		row.add_child(b)
+	_root.add_child(row)
+	_note(String(TestScenario.PRESETS[id]["about"]), UiStyle.WHITE, 14)
+	_note("Objective: " + String(TestScenario.PRESETS[id]["objective"]) + ".", UiStyle.CYAN, 13)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 14)
+	grid.add_theme_constant_override("v_separation", 4)
+	for prm in TestScenario.PARAMS:
+		var key := String(prm[0])
+		if key == "targets" and id != "torpedo_range":
+			continue
+		grid.add_child(UiStyle.label(String(prm[1]), 14, UiStyle.DIM))
+		var opt := OptionButton.new()
+		opt.add_theme_font_size_override("font_size", 14)
+		var vals: Array = prm[2]
+		for n in prm[3]:
+			opt.add_item(String(n))
+		opt.selected = maxi(vals.find(scenario_cfg.get(key)), 0)
+		opt.item_selected.connect(func(i: int) -> void: scenario_cfg[key] = vals[i])
+		opt.custom_minimum_size = Vector2(260, 0)
+		grid.add_child(opt)
+	_root.add_child(grid)
+	_note("Played in open water far from the patrol area, with the story switched off and the developer diagnostics on (exact torpedo outcomes, the truth about the scenario's units). Nothing is saved and no campaign is touched. F8 restarts; Esc and Main Menu leave.", UiStyle.DIM, 12)
+	var b2 := HBoxContainer.new()
+	b2.add_theme_constant_override("separation", 10)
+	var go := UiStyle.button("Start scenario", 17)
+	go.pressed.connect(func() -> void: action.emit("scenario", scenario_cfg.duplicate()))
+	b2.add_child(go)
+	var back := UiStyle.button("Back", 17)
+	back.pressed.connect(func() -> void: show_screen("root"))
+	b2.add_child(back)
+	_root.add_child(b2)
 
 
 func _confirm(text: String, cb: Callable) -> void:
