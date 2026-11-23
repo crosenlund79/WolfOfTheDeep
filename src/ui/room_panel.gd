@@ -192,7 +192,9 @@ func _engine_text() -> String:
 func _mess_text() -> String:
 	var h := clock.hours()
 	var next := "breakfast at 07:00" if h < 7.0 or h >= 18.5 else ("lunch at 12:00" if h < 12.0 else "dinner at 18:00")
-	var t := "[b]TODAY[/b]\nNext: %s.\n%s\n\n" % [next, "Cards on the table this evening." if h > 17.0 or h < 2.0 else "The table is clear."]
+	var t := "[b]TODAY[/b]\nNext: %s.\n%s\n" % [next, "Cards on the table this evening." if h > 17.0 or h < 2.0 else "The table is clear."]
+	var why: String = main.cards_blocker() if main.has_method("cards_blocker") else ""
+	t += ("[color=#e8b04a]No cards now: %s.[/color]\n\n" % why) if why != "" else "Cards can be called (Sit in on cards).\n\n"
 	t += "[b]THE SWEETS TALLY[/b]\n[code]"
 	var rows: Array = []
 	for m in crew.members.values():

@@ -89,3 +89,65 @@ static func assess(ev: Dictionary) -> Dictionary:
 	if not lines.is_empty():
 		text += " " + " ".join(lines)
 	return {"level": level, "conf": conf, "text": text, "evidence": lines}
+
+
+## The answer when the captain asks for an assessment of a ship engaged.
+## One of VERDICTS, from the evidence only, with what supports it and what
+## is still uncertain. `held` is whether the boat holds her now; `engaged_t`
+## when she was first fired on.
+const VERDICTS := ["CONFIRMED SUNK", "PROBABLE SINKING", "CONFIRMED DAMAGED", "PROBABLE DAMAGE", "NO DAMAGE CONFIRMED", "STATUS UNKNOWN"]
+
+
+static func verdict(ev: Dictionary, now: float, held: bool) -> Dictionary:
+	var a := assess(ev)
+	var support: Array[String] = a["evidence"]
+	var doubt: Array[String] = []
+	var hits := int(ev["hits"])
+	var t0 := float(ev.get("engaged_t", ev["t_hit"]))
+	var seen_since := float(ev["last_seen"]) >= t0
+	var heard_since := float(ev["last_heard"]) >= t0
+	var v := "STATUS UNKNOWN"
+	var damage_seen := bool(ev["fire"]) or int(ev["list"]) >= 5 or String(ev["trim"]) != "" or int(ev["secondary"]) > 0
+	if bool(ev["under"]) or (bool(ev["sunk_report"]) and bool(ev["breaking_up"])):
+		v = "CONFIRMED SUNK"
+	elif bool(ev["breaking_up"]) or bool(ev["sunk_report"]) or bool(ev["settling"]) or int(ev["list"]) >= 15:
+		v = "PROBABLE SINKING"
+	elif damage_seen:
+		v = "CONFIRMED DAMAGED"
+	elif hits > 0:
+		v = "PROBABLE DAMAGE"
+	elif seen_since or heard_since or held:
+		v = "NO DAMAGE CONFIRMED"
+	# What is still open, in the crew's words.
+	match v:
+		"CONFIRMED SUNK":
+			if not bool(ev["sunk_report"]):
+				doubt.append("No report of her loss has come in yet.")
+		"PROBABLE SINKING":
+			if not bool(ev["under"]):
+				doubt.append("Nobody has seen her go under.")
+			if bool(ev["sunk_report"]) and not bool(ev["breaking_up"]) and not seen_since:
+				doubt.append("The loss is known only from a report, and reports can be wrong.")
+			if not bool(ev["sunk_report"]):
+				doubt.append("No report of her loss has come in.")
+		"CONFIRMED DAMAGED":
+			doubt.append("How badly is not known: she may be fighting it or may make port.")
+		"PROBABLE DAMAGE":
+			doubt.append("A detonation at the right time is most likely a hit, but nothing of its effect has been seen or heard.")
+			if bool(ev["stopped"]):
+				doubt.append("She has stopped; that may be damage, or a ship taking stock.")
+		"NO DAMAGE CONFIRMED":
+			doubt.append("No detonation was heard; she appears unharmed.")
+		"STATUS UNKNOWN":
+			doubt.append("No detonation heard, and she has not been seen or heard since the attack.")
+	if not held and v != "CONFIRMED SUNK":
+		var last := maxf(float(ev["last_seen"]), float(ev["last_heard"]))
+		doubt.append("Contact not held now%s." % ("; last observed %d min ago" % int((now - last) / 60.0) if last > 0.0 else ""))
+	if not seen_since and v in ["PROBABLE SINKING", "CONFIRMED DAMAGED", "PROBABLE DAMAGE"]:
+		doubt.append("She has not been seen since the attack; a look through the periscope would tell more.")
+	var text := "%s." % v
+	if not support.is_empty():
+		text += " Evidence: " + " ".join(support)
+	if not doubt.is_empty():
+		text += " Uncertain: " + " ".join(doubt)
+	return {"verdict": v, "text": text, "evidence": support, "uncertain": doubt}

@@ -226,7 +226,7 @@ func advance(dt: float) -> void:
 		if cm.id == "miller" and miller_has_conn:
 			loc = "control"
 			act = "has the conn"
-		if poker_session and cm.id in ["basse", "erik", "freja", "maya"] and loc != "control" and loc != "bunks" and alert == 0:
+		if poker_session and cm.id in ["basse", "erik", "freja", "maya"] and loc != "control" and loc != "bunks" and alert < 2:
 			loc = "mess"
 			act = "playing cards"
 		cm.awake = loc != "bunks"

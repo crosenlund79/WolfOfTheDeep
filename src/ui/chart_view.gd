@@ -30,6 +30,8 @@ var track: Array = []               # own track history: [x, z]
 var reported_ice: Array = []        # [{pos, keel, r, t, id}] from ice reports
 var aircraft_marks: Array = []      # aircraft as the boat knows them (ESM, sightings, last known)
 var intel_marks: Array = []         # units known only from reports: {pos, unc, label, color}
+var weapons: WeaponPlot             # torpedoes and charges, as the boat knows them
+var drone: ReconDrone               # the reconnaissance drone, while it is up
 
 var _center := Vector2(0.0, 0.0)
 var _mpp := 60.0
@@ -655,6 +657,11 @@ func _draw() -> void:
 		_draw_intel_mark(m, f)
 	for a in aircraft_marks:
 		_draw_aircraft(a, f)
+	if weapons:
+		for w in weapons.list():
+			_draw_weapon(w, f)
+	if drone and drone.airborne():
+		_draw_drone(f)
 	_draw_ownship()
 	_draw_selection()
 	_draw_highlight(fd)
@@ -876,6 +883,14 @@ func _draw_legend(f: Font, ink: Color, night: bool) -> void:
 		["bearing", "Bearing only, no range yet"],
 		["intel", "Unit known only from a report; ring: doubt"],
 		["air", "Aircraft (filled: seen; open: estimated)"],
+		["head", "WEAPONS (known or estimated; grey with a cross: ended)"],
+		["own_torp", "Own torpedo, live by wire; line: its track"],
+		["own_torp_est", "Own torpedo, estimated (wire parted)"],
+		["hostile_torp", "Enemy torpedo (only once detected)"],
+		["charge", "Charge or ASW weapon (only once detected)"],
+		["burst", "Detonation heard"],
+		["stale_weapon", "Ended, expired or no longer tracked"],
+		["drone", "Reconnaissance drone; ring: its radio reach"],
 		["head", "ICE"],
 		["berg", "Iceberg held on sonar or seen"],
 		["berg_rep", "Iceberg from an ice report (older)"],
@@ -942,6 +957,28 @@ func _draw_legend(f: Font, ink: Color, night: bool) -> void:
 				var ac := Color(0.6, 0.3, 0.1) if not night else Color(1.0, 0.6, 0.4)
 				_air_glyph(p + Vector2(-8, 0), ac, true)
 				_air_glyph(p + Vector2(10, 0), ac, false)
+			"own_torp":
+				var oc := _weapon_colors("own_torpedo", "current")
+				draw_line(p - Vector2(16, 0), p - Vector2(4, 0), Color(oc.r, oc.g, oc.b, 0.55), 1.2)
+				_torpedo_glyph(p + Vector2(4, 0), PI * 0.5, oc, true)
+			"own_torp_est":
+				var oe := _weapon_colors("own_torpedo", "estimated")
+				draw_arc(p + Vector2(4, 0), 9.0, 0.0, TAU, 20, Color(oe.r, oe.g, oe.b, 0.3), 1.0)
+				_torpedo_glyph(p + Vector2(4, 0), PI * 0.5, oe, false)
+			"hostile_torp":
+				_torpedo_glyph(p, PI * 0.5, _weapon_colors("hostile_torpedo", "current"), true)
+			"charge":
+				_charge_glyph(p, _weapon_colors("charge", "current"))
+			"burst":
+				_burst_glyph(p, _weapon_colors("detonation", "detonated"))
+			"drone":
+				var dc := Color(0.1, 0.55, 0.35) if not night else Color(0.55, 0.9, 0.65)
+				_drone_glyph(p, dc)
+			"stale_weapon":
+				var sc2 := _weapon_colors("own_torpedo", "ended")
+				_torpedo_glyph(p, PI * 0.5, sc2, false)
+				draw_line(p + Vector2(-6, -6), p + Vector2(6, 6), sc2, 1.5)
+				draw_line(p + Vector2(-6, 6), p + Vector2(6, -6), sc2, 1.5)
 			"berg":
 				_berg_glyph(p, Color(0.2, 0.4, 0.75) if not night else Color(0.55, 0.7, 0.95))
 			"berg_rep":
@@ -1137,6 +1174,120 @@ func _draw_aircraft(a: Dictionary, f: Font) -> void:
 		draw_arc(p, clampf(float(a.get("unc", 2000.0)) / _mpp, 6.0, 260.0), 0.0, TAU, 32, Color(col.r, col.g, col.b, 0.4), 1.0)
 	_air_glyph(p, col, kind == "confirmed")
 	draw_string(f, p + Vector2(10, -6), String(a.get("label", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
+
+
+func _weapon_colors(kind: String, state: String) -> Color:
+	if state in WeaponPlot.STATES_ENDED and kind != "detonation":
+		return Color(0.45, 0.47, 0.5, 0.8) if not _night else Color(0.55, 0.45, 0.42, 0.8)
+	match kind:
+		"own_torpedo":
+			return Color(0.0, 0.45, 0.75) if not _night else Color(0.45, 0.85, 1.0)
+		"detonation":
+			var c := Color(0.95, 0.42, 0.0) if not _night else Color(1.0, 0.6, 0.35)
+			if state in WeaponPlot.STATES_ENDED:
+				c.a = 0.75
+			return c
+	var h := Settings.contact_color("hostile")
+	return h.darkened(0.2) if not _night else h
+
+
+## A torpedo: a narrow dart along its heading; filled when its position is
+## current (telemetry, or a firm detection), open when estimated.
+func _torpedo_glyph(p: Vector2, heading: float, col: Color, filled: bool) -> void:
+	var fw := Vector2(sin(heading), -cos(heading))
+	var rt := Vector2(-fw.y, fw.x)
+	var pts := PackedVector2Array([p + fw * 9.0, p + rt * 3.0 - fw * 5.0, p - fw * 7.0, p - rt * 3.0 - fw * 5.0, p + fw * 9.0])
+	if filled:
+		draw_colored_polygon(pts, col)
+	else:
+		draw_polyline(pts, col, 1.5)
+
+
+## A charge (depth charge, ASW rocket salvo): a ring with a cross.
+func _charge_glyph(p: Vector2, col: Color) -> void:
+	draw_arc(p, 7.0, 0.0, TAU, 18, col, 1.6)
+	draw_line(p + Vector2(-5, -5), p + Vector2(5, 5), col, 1.4)
+	draw_line(p + Vector2(-5, 5), p + Vector2(5, -5), col, 1.4)
+
+
+## A detonation heard: a burst.
+func _burst_glyph(p: Vector2, col: Color) -> void:
+	for k in 8:
+		var a := TAU * float(k) / 8.0
+		var d := Vector2(cos(a), sin(a))
+		draw_line(p + d * 3.0, p + d * (9.0 if k % 2 == 0 else 6.0), col, 1.6)
+
+
+func _draw_weapon(w: Dictionary, f: Font) -> void:
+	var kind := String(w["kind"])
+	var state := String(w["state"])
+	var col := _weapon_colors(kind, state)
+	var p := world_to_screen(w["pos"])
+	if p.x < -60.0 or p.x > size.x + 60.0 or p.y < -60.0 or p.y > size.y + 60.0:
+		return
+	var stale := state in WeaponPlot.STATES_ENDED
+	# Short track behind it.
+	var tr: Array = w["trail"]
+	if tr.size() > 1 and kind != "detonation":
+		var pts := PackedVector2Array()
+		for q in tr:
+			pts.append(w2s((q as Vector2).x, (q as Vector2).y))
+		if not stale:
+			pts.append(p)
+		if state == "current":
+			draw_polyline(pts, Color(col.r, col.g, col.b, 0.55), 1.2)
+		else:
+			for i in pts.size() - 1:
+				draw_dashed_line(pts[i], pts[i + 1], Color(col.r, col.g, col.b, 0.45), 1.0, 4.0)
+	# How far off an estimate may be.
+	var unc := float(w["unc"]) / _mpp
+	if unc > 5.0 and not stale:
+		draw_arc(p, minf(unc, 400.0), 0.0, TAU, 32, Color(col.r, col.g, col.b, 0.3), 1.0)
+	match kind:
+		"own_torpedo", "hostile_torpedo":
+			_torpedo_glyph(p, float(w["heading"]), col, state == "current")
+		"charge":
+			_charge_glyph(p, col)
+		"detonation":
+			_burst_glyph(p, col)
+	if stale and kind != "detonation":
+		draw_line(p + Vector2(-6, -6), p + Vector2(6, 6), col, 1.5)
+		draw_line(p + Vector2(-6, 6), p + Vector2(6, -6), col, 1.5)
+	var tag := String(w["label"])
+	match state:
+		"current":
+			tag += "  WIRE" if kind == "own_torpedo" else "  DETECTED"
+		"estimated":
+			tag += "  EST."
+		_:
+			tag += "  %s %s" % [String(w["note"]).to_upper(), ChartView.clock_text(float(w["ended_t"]))]
+	draw_string(f, p + Vector2(11, -7), tag, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
+
+
+## The drone: a small quad cross, its leg to where it is going, and the
+## reach of its radio link around the boat.
+func _drone_glyph(p: Vector2, col: Color) -> void:
+	draw_line(p + Vector2(-6, -6), p + Vector2(6, 6), col, 1.5)
+	draw_line(p + Vector2(-6, 6), p + Vector2(6, -6), col, 1.5)
+	for d in [Vector2(-6, -6), Vector2(6, 6), Vector2(-6, 6), Vector2(6, -6)]:
+		draw_arc(p + d, 3.0, 0.0, TAU, 10, col, 1.2)
+
+
+func _draw_drone(f: Font) -> void:
+	var col := Color(0.1, 0.55, 0.35) if not _night else Color(0.55, 0.9, 0.65)
+	var own := world_to_screen(sub.global_position)
+	draw_arc(own, ReconDrone.LINK_RANGE / _mpp, 0.0, TAU, 96, Color(col.r, col.g, col.b, 0.35), 1.0)
+	var p := world_to_screen(drone.pos)
+	var goal := world_to_screen(sub.global_position if drone.state == "returning" else drone.target)
+	if p.distance_to(goal) > 4.0:
+		draw_dashed_line(p, goal, Color(col.r, col.g, col.b, 0.6), 1.2, 5.0)
+	_drone_glyph(p, col)
+	draw_string(f, p + Vector2(11, -7), "DRONE  %d%%%s" % [int(drone.battery * 100.0), "  RETURNING" if drone.state == "returning" else ""], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
+
+
+static func clock_text(t: float) -> String:
+	var h := fposmod(t / 3600.0, 24.0)
+	return "%02d:%02d" % [int(h), int(fposmod(h * 60.0, 60.0))]
 
 
 func _air_glyph(p: Vector2, col: Color, filled: bool) -> void:

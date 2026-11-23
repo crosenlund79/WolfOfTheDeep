@@ -167,8 +167,8 @@ DEPTH      O  surface  P  periscope depth  Z  deeper  X  shallower
            M  raise / lower masts   B  emergency blow (40 m or deeper)
 CHART      click: select  ·  Enter / double-click: steer for it  ·  Shift+click: waypoint
            F find  ·  G legend  ·  right-drag pan  ·  wheel zoom  ·  C centre
-ORDERS     Tab  orders to the crew (silent running, snorkel, fix, radio,
-           battle stations, the conn, rest, cards)  ·  F1  mission briefing
+ORDERS     Tab  orders to the crew (silent running, snorkel, fix, radio, battle
+           stations, the conn, rest, cards, damage assessment, drone)  ·  F1  briefing
 TIME       + / -  compression x1 to x250 (x4 in action; drops to x1 on events)
            J  advance until something needs you (J or Esc stops)  ·  N  next waypoint
 CREW       click a person to talk  ·  click things in the rooms

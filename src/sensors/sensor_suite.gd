@@ -21,6 +21,7 @@ var clock: GameClock
 ## Skill of whoever is on the sonar (set by the crew system).
 var sonar_skill := 1.0
 var sonar_manned := true
+var drone: ReconDrone               # a second pair of eyes while it is up
 
 var contacts: Array[Contact] = []
 var _by_vessel: Dictionary = {}
@@ -90,7 +91,13 @@ func _tick(dt: float) -> void:
 			var bulk := clampf(v.length / 120.0, 0.4, 1.3)
 			seen = dist < eye * bulk and not _occluded(sub.global_position, v.global_position)
 		var got_ais := masts and v.ais_on and not v.submerged and dist < 40000.0
-		if not (heard or seen or got_ais):
+		# The drone's camera: ships on the surface within what it can make out.
+		var drone_d := INF
+		var drone_sees := false
+		if drone and drone.airborne() and not v.submerged:
+			drone_d = Vector2(v.global_position.x - drone.pos.x, v.global_position.z - drone.pos.z).length()
+			drone_sees = drone_d < drone.eye(vis, dark) * clampf(v.length / 120.0, 0.4, 1.3) and not _occluded(drone.pos, v.global_position)
+		if not (heard or seen or got_ais or drone_sees):
 			continue
 		var c: Contact = _by_vessel.get(v)
 		if c == null:
@@ -120,6 +127,15 @@ func _tick(dt: float) -> void:
 			c.bearing = true_brg
 			c.range_err = minf(c.range_err, 0.1)
 			c.class_progress = maxf(c.class_progress, 1.0)
+		if drone_sees:
+			c.sources["drone"] = true
+			c.bearing = true_brg
+			c.range_err = minf(c.range_err, 0.05)
+			# A close look classifies her; only very close can her name be read.
+			c.class_progress = 1.0 if drone_d < 3000.0 else maxf(c.class_progress, 0.6)
+			if drone_d < 600.0 and v.vessel_name != "" and c.identified_name == "":
+				c.identified_name = v.vessel_name
+				contact_identified.emit(c)
 		if got_ais:
 			c.sources["ais"] = true
 			c.ais = {"name": v.vessel_name, "type": _ais_type(v), "course": int(fposmod(rad_to_deg(v.heading), 360.0)), "speed": snappedf(v.speed / Submarine.KNOT, 0.1)}
@@ -155,6 +171,17 @@ func _tick(dt: float) -> void:
 
 func _tick_ice(now: float, vis: float, dark: float, scope_clear: bool) -> void:
 	var fwd := sub.forward()
+	# Ice the drone can see from above (charted where it is seen).
+	if drone and drone.airborne():
+		var dp := Vector3(drone.pos.x, 0.0, drone.pos.z)
+		for item2 in area.ice_near(dp, minf(drone.eye(vis, dark), 3000.0)):
+			var b2: Dictionary = item2["berg"]
+			var c2 := _berg_contact(b2, now)
+			var rel2: Vector3 = (b2["pos"] as Vector3) - sub.global_position
+			c2.est_pos = b2["pos"]
+			c2.range_est = Vector2(rel2.x, rel2.z).length()
+			c2.bearing = fposmod(rad_to_deg(atan2(rel2.x, -rel2.z)), 360.0)
+			c2.sources["drone"] = true
 	for item in area.ice_near(sub.global_position, maxf(1600.0, vis if scope_clear else 0.0)):
 		var b: Dictionary = item["berg"]
 		var dist := float(item["dist"])
@@ -187,6 +214,24 @@ func _tick_ice(now: float, vis: float, dark: float, scope_clear: bool) -> void:
 			ice_warning.emit(c, dist, rel_brg)
 		elif eye_sees and dist < 500.0 and absf(rel_brg) < 30.0 and sub.speed > 1.0:
 			ice_warning.emit(c, dist, rel_brg)
+
+
+func _berg_contact(b: Dictionary, now: float) -> Contact:
+	var c: Contact = _by_berg.get(b["id"])
+	if c == null:
+		c = Contact.new()
+		c.kind = "ICE"
+		c.id = "I%d" % _ice_id
+		_ice_id += 1
+		c.berg = b
+		c.classification = "ICE"
+		c.class_progress = 1.0
+		c.first_time = now
+		contacts.append(c)
+		_by_berg[b["id"]] = c
+	c.last_time = now
+	c.status = "TRACKING"
+	return c
 
 
 func _occluded(a: Vector3, b: Vector3) -> bool:

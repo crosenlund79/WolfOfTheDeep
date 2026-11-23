@@ -48,7 +48,7 @@ jobs:
           timeout 180 ~/godot/godot --headless --path . --quit-after 150 2>&1 | tee smoke.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error" smoke.log; then exit 1; fi
 
-      - name: Practical checks (cards, sound, pause, control room, saves, UI, world, intelligence, conduct, torpedo, helm, command, scenarios)
+      - name: Practical checks (cards, sound, pause, control room, saves, UI, world, intelligence, conduct, torpedo, helm, command, scenarios, combat operations)
         run: |
           timeout 300 ~/godot/godot --headless --path . -s tests/check_poker.gd 2>&1 | tee checks.log
           timeout 120 ~/godot/godot --headless --path . -s tests/check_audio.gd 2>&1 | tee -a checks.log
@@ -63,10 +63,11 @@ jobs:
           timeout 300 ~/godot/godot --headless --path . --fixed-fps 30 -s tests/check_helm.gd 2>&1 | tee -a checks.log
           timeout 600 ~/godot/godot --headless --path . --fixed-fps 30 -s tests/check_command.gd 2>&1 | tee -a checks.log
           timeout 900 ~/godot/godot --headless --path . --fixed-fps 30 -s tests/check_scenario.gd 2>&1 | tee -a checks.log
+          timeout 900 ~/godot/godot --headless --path . --fixed-fps 30 -s tests/check_combat_ops.gd 2>&1 | tee -a checks.log
           # One check per line: under "bash -e" only the last command of an
           # "a && b" list stops the step, so each result is tested on its own.
           grep "CHECK:" checks.log
-          for c in POKER AUDIO PAUSE "CONTROL ROOM" SAVE UI WORLD INTEL CONDUCT TORPEDO HELM COMMAND SCENARIO; do
+          for c in POKER AUDIO PAUSE "CONTROL ROOM" SAVE UI WORLD INTEL CONDUCT TORPEDO HELM COMMAND SCENARIO "COMBAT OPS"; do
             grep -q "$c CHECK: PASS" checks.log || { echo "missing: $c CHECK: PASS"; exit 1; }
           done
 

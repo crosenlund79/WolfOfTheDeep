@@ -83,6 +83,13 @@ func _ready() -> void:
 		if selected != "":
 			log_for.emit(selected))
 	actions.add_child(log_b)
+	var bda_b := UiStyle.button("Damage assessment", 13)
+	bda_b.tooltip_text = "Ask fire control what is known of a ship you have fired on"
+	bda_b.pressed.connect(func() -> void:
+		if selected != "" and main and main.has_method("request_assessment"):
+			main.request_assessment(selected)
+			refresh())
+	actions.add_child(bda_b)
 	v.add_child(actions)
 	visible = false
 
@@ -190,7 +197,7 @@ func _details(c: Contact, now: float) -> String:
 	lines.append("[b]%s[/b]   %s   ·   %s" % [c.id, c.label(), c.certainty_text()])
 	var srcs: Array[String] = []
 	for k in c.sources.keys():
-		srcs.append({"sonar": "passive sonar", "visual": "visual (periscope)", "ais": "AIS broadcast", "report": "intelligence report", "ice": "sonar / visual"}.get(k, k))
+		srcs.append({"sonar": "passive sonar", "visual": "visual (periscope)", "ais": "AIS broadcast", "report": "intelligence report", "ice": "sonar / visual", "drone": "reconnaissance drone"}.get(k, k))
 	lines.append("Sources: %s.   First held %s ago, last observation %s." % [", ".join(srcs) if not srcs.is_empty() else "none current", ago(now - c.first_time), ago(now - c.last_time)])
 	lines.append("Bearing %03d true.   Range %s.   Course / speed %s." % [int(round(c.bearing)) % 360, range_text(c) if range_text(c) != "----" else "not yet known (bearing only)", c.motion_text() if c.kind == "VESSEL" else "drifting with the ice"])
 	if c.kind == "VESSEL":

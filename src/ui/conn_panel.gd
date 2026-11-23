@@ -80,6 +80,9 @@ func _process(_delta: float) -> void:
 		lines.append("TORP    RUNNING %d S · %.1f KM" % [int(t.travelled / Torpedo.RUN_SPEED), t.travelled / 1000.0])
 	if main.clock.level > 0:
 		lines.append("TIME    x %d%s" % [int(main.clock.scale()), "  ADVANCING TO EVENT" if main.get("_advance") else ""])
+	var dr: ReconDrone = main.get("drone")
+	if dr and dr.airborne():
+		lines.append("DRONE   %s · %.1f KM · BATT %d%%" % ["RETURNING" if dr.state == "returning" else "UP", dr.range_from(main.sub.global_position) / 1000.0, int(dr.battery * 100.0)])
 	var pa: PursuitAssessment = main.get("pursuit")
 	if pa:
 		lines.append("HUNTED  %s  (crew assessment)" % ["none indicated", "possible search", "PROBABLE PURSUIT", "CONFIRMED PURSUIT"][pa.level])

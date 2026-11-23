@@ -124,6 +124,8 @@ var _searching: Dictionary = {}         # ship uid -> true while a commander sea
 var _fate_rng := RandomNumberGenerator.new()
 var conscience: Conscience
 var pursuit := PursuitAssessment.new()
+var weapon_plot := WeaponPlot.new()
+var drone := ReconDrone.new()
 var room_panel: RoomPanel
 var standing: CommandStanding
 var _deep_judged := false
@@ -199,6 +201,7 @@ func _ready() -> void:
 	sensors.area = area
 	sensors.weather = weather
 	sensors.vessels = vessels
+	sensors.drone = drone
 	sensors.clock = clock
 	add_child(sensors)
 
@@ -421,6 +424,8 @@ func _build_ui() -> void:
 	ui.add_child(sonar_ui)
 	chart = ChartView.new()
 	chart.aircraft_marks = traffic.marks       # shared with the table chart below
+	chart.weapons = weapon_plot
+	chart.drone = drone
 	chart.main = self
 	chart.data = ChartData.new(area.geo)
 	chart.clock = clock
@@ -543,6 +548,7 @@ func _connect_signals() -> void:
 		dialogue.say("miller", VOICE_TEXT["vo_miller_torpedo_away"], Dialogue.P.CRITICAL, "vo_miller_torpedo_away"))
 	encounter.target_hit.connect(_on_target_hit)
 	encounter.engagement.connect(_on_engagement)
+	drone.event.connect(_on_drone_event)
 	chart.course_ordered.connect(_on_course_ordered)
 	chart.request.connect(_on_chart_request)
 	sub.pressure_event.connect(_on_pressure_event)
@@ -655,6 +661,8 @@ func _sim_step(h: float) -> void:
 		(v as SurfaceShip).advance(h, sub.position)
 		(v as SurfaceShip).set_night(night)
 	encounter.advance(h, view == View.PERISCOPE)
+	weapon_plot.advance(clock.seconds, encounter.engagements)
+	drone.advance(h, sub, weather, vessels)
 	traffic.advance(h)
 	reports.advance(h)
 	_collide()
@@ -698,6 +706,7 @@ func _slow_tick(dt: float) -> void:
 	_navigation(dt)
 	_world_intel()
 	_assess_pursuit(dt)
+	_after_action(dt)
 	_advance_watch()
 	conscience.advance(dt)
 	standing.advance(dt)
@@ -935,6 +944,9 @@ func _update_alert() -> void:
 		poker.interrupt("Battle stations. The cards are swept off the table.")
 		crew.poker_session = false
 		_drop_time("battle stations")
+	elif poker.visible and cards_blocker() != "":
+		poker.interrupt("The game breaks up: %s." % cards_blocker())
+		crew.poker_session = false
 	crew.alert = level
 	# Compression never stays above what the situation allows.
 	var cap := time_cap()
@@ -1328,7 +1340,7 @@ func _on_contact_new(c: Contact) -> void:
 		return
 	var v := c.vessel as SurfaceShip
 	var rel := fposmod(c.bearing - rad_to_deg(sub.heading), 360.0)
-	var how := "passive sonar" if c.sources.has("sonar") else ("visual" if c.sources.has("visual") else "AIS")
+	var how := "passive sonar" if c.sources.has("sonar") else ("visual" if c.sources.has("visual") else ("drone" if c.sources.has("drone") else "AIS"))
 	clog("CONTACTS", "New contact %s, bearing %s (%s)%s." % [c.id, _brg(c), how, (", range about %.1f nm" % (c.range_est / 1852.0)) if c.range_err < 0.3 else ""], "confirmed", {"contact": c.id, "pos": c.est_pos if c.range_err < 0.3 else sub.global_position})
 	if asleep:
 		if watch.orders["wake_on_contact"]:
@@ -1671,6 +1683,9 @@ func _bda_update(ship: SurfaceShip) -> void:
 	var ev: Dictionary = _bda.get(ship.uid, {})
 	if ev.is_empty():
 		return
+	_verdict_follow(ship.uid)
+	if int(ev["hits"]) == 0 and not bool(ev["sunk_report"]):
+		return      # fired on but never hit: nothing to assess unasked
 	var a := BattleDamage.assess(ev)
 	if String(a["level"]) == String(ev["level"]) and String(a["conf"]) == String(ev["conf"]):
 		return
@@ -1691,6 +1706,10 @@ func _on_ship_secondary(ship: SurfaceShip, _pos: Vector3) -> void:
 		var ev: Dictionary = _bda[ship.uid]
 		ev["secondary"] = int(ev["secondary"]) + 1
 		_bda_update(ship)
+		# Heard, and placed where the plot has her (not where she really is).
+		var c := sensors.contact_for(ship)
+		if c and c.range_err <= 0.3:
+			weapon_plot.heard_detonation("X%s-%d" % [c.id, int(ev["secondary"])], c.est_pos, clock.seconds, "secondary explosion, %s" % c.id)
 
 
 ## A ship we hit has gone down: her commander's fate, and the world hears of it.
@@ -1736,6 +1755,8 @@ func _on_report(r: Dictionary) -> void:
 		var ship := _ship_by_uid(subj)
 		if ship:
 			_bda_update(ship)
+		else:
+			_verdict_follow(subj)
 	if String(r["summary"]).contains("search for a submarine"):
 		pursuit.note_intel(clock.seconds)
 	# Significant intelligence slows time: a search, or a foreign unit close by.
@@ -2433,6 +2454,97 @@ func _fire() -> void:
 		_drop_time("torpedo fired")
 
 
+# --- damage assessment on request ---------------------------------------------------
+
+## Contacts the boat has fired on (most recent first), for the orders menu.
+func engaged_contacts() -> Array[String]:
+	var out: Array[String] = []
+	var rows: Array = []
+	for uid in _bda.keys():
+		var ev: Dictionary = _bda[uid]
+		if String(ev["contact"]) != "":
+			rows.append([float(ev.get("engaged_t", ev["t_hit"])), String(ev["contact"])])
+	rows.sort_custom(func(a: Array, b: Array) -> bool: return float(a[0]) > float(b[0]))
+	for r in rows:
+		if not out.has(String(r[1])):
+			out.append(String(r[1]))
+	return out
+
+
+func _bda_uid_for(contact_id: String) -> String:
+	for uid in _bda.keys():
+		if String((_bda[uid] as Dictionary)["contact"]) == contact_id:
+			return String(uid)
+	return ""
+
+
+## The captain asks for an assessment of a ship engaged. The crew answer
+## from what they have: detonations heard, what was seen and heard since,
+## loss of contact, and any reports received. Nothing is invented; what is
+## uncertain is said. The first answer and every later change are logged.
+func request_assessment(contact_id: String) -> Dictionary:
+	var uid := _bda_uid_for(contact_id)
+	if uid == "":
+		hud.toast("NO ENGAGEMENT WITH %s TO ASSESS" % contact_id)
+		dialogue.say("miller", "We haven't engaged %s, Captain. There's nothing to assess." % contact_id, Dialogue.P.REPORT)
+		return {}
+	var ev: Dictionary = _bda[uid]
+	var v := _verdict_now(uid)
+	var hist: Array = ev.get("verdicts", [])
+	var prev: Dictionary = hist[-1] if not hist.is_empty() else {}
+	var head := "Damage assessment requested, %s: " % contact_id
+	if prev.is_empty():
+		head += "%s" % String(v["text"])
+	elif String(prev["verdict"]) != String(v["verdict"]):
+		head += "%s (revised; was %s at %s)" % [String(v["text"]), String(prev["verdict"]), ChartView.clock_text(float(prev["t"]))]
+	else:
+		head += "unchanged since %s. %s" % [ChartView.clock_text(float(prev["t"])), String(v["text"])]
+	if prev.is_empty() or String(prev["verdict"]) != String(v["verdict"]):
+		hist.append({"t": clock.seconds, "verdict": String(v["verdict"])})
+	ev["verdicts"] = hist
+	var verdict := String(v["verdict"])
+	clog("COMBAT", head, "confirmed" if verdict.begins_with("CONFIRMED") else ("unresolved" if verdict == "STATUS UNKNOWN" else "assessment"), {"contact": contact_id})
+	var doubt: Array = v["uncertain"]
+	var say := "%s: %s, Captain." % [contact_id, verdict.to_lower()]
+	if not doubt.is_empty():
+		say += " " + String(doubt[0])
+	dialogue.say("miller", say, Dialogue.P.REPORT)
+	hud.event("DAMAGE ASSESSMENT  ·  %s  ·  %s" % [contact_id, verdict])
+	return v
+
+
+func _verdict_now(uid: String) -> Dictionary:
+	var ev: Dictionary = _bda[uid]
+	var c := sensors.contact_for(_ship_by_uid(uid)) if _ship_by_uid(uid) else null
+	var held := c != null and c.status == "TRACKING" and clock.seconds - c.last_time < 60.0
+	return BattleDamage.verdict(ev, clock.seconds, held)
+
+
+## Once the captain has asked, later evidence that changes the answer is
+## reported and logged as an update; the earlier answers stay in the log.
+func _verdict_follow(uid: String) -> void:
+	if not _bda.has(uid):
+		return
+	var ev: Dictionary = _bda[uid]
+	var hist: Array = ev.get("verdicts", [])
+	if hist.is_empty():
+		return
+	var v := _verdict_now(uid)
+	var prev: Dictionary = hist[-1]
+	if String(prev["verdict"]) == String(v["verdict"]):
+		return
+	# Losing sight of her is not news about her condition.
+	if String(v["verdict"]) == "STATUS UNKNOWN" and String(prev["verdict"]) != "STATUS UNKNOWN":
+		return
+	hist.append({"t": clock.seconds, "verdict": String(v["verdict"])})
+	ev["verdicts"] = hist
+	var cid := String(ev["contact"])
+	clog("COMBAT", "Damage assessment updated, %s: %s (was %s at %s)" % [cid, String(v["text"]), String(prev["verdict"]), ChartView.clock_text(float(prev["t"]))],
+		"confirmed" if String(v["verdict"]).begins_with("CONFIRMED") else "assessment", {"contact": cid})
+	if started and not asleep:
+		hud.event("ASSESSMENT UPDATED  ·  %s  ·  %s" % [cid, String(v["verdict"])])
+
+
 ## The crew's view of whether we are being hunted; changes are logged and
 ## an escalation is reported and slows time.
 var _pursuit_said := 0          # the highest assessment reported to the captain lately
@@ -2473,6 +2585,18 @@ func _assess_pursuit(dt: float) -> void:
 func _on_engagement(kind: String, text: String) -> void:
 	clog("COMBAT", text, "confirmed" if kind in ["launch", "impact", "telemetry", "miss"] else ("unresolved" if kind in ["unknown", "suspected"] else "assessment"))
 	match kind:
+		"launch":
+			# Every ship fired on gets an evidence record, hit or not, so the
+			# captain can ask about her later.
+			var rec: Dictionary = encounter.engagements[-1] if not encounter.engagements.is_empty() else {}
+			var tgt: SurfaceShip = rec.get("target") if rec.get("target") is SurfaceShip else null
+			if tgt:
+				if not _bda.has(tgt.uid):
+					_bda[tgt.uid] = BattleDamage.new_evidence(String(rec.get("contact", "")), clock.seconds)
+				var ev0: Dictionary = _bda[tgt.uid]
+				if not ev0.has("engaged_t"):
+					ev0["engaged_t"] = clock.seconds
+				_watch_ship(tgt)
 		"suspected":
 			if not asleep:
 				dialogue.say("freja", "Time's up for the intercept, Captain. No detonation. I think it's missed.", Dialogue.P.CRITICAL)
@@ -2541,6 +2665,8 @@ func _open_orders() -> void:
 	items.append(["battle", "Stand down from battle stations" if _battle else "Battle stations"])
 	items.append("CREW")
 	items.append(["sonar_report", "Sonar: report all contacts"])
+	for cid in engaged_contacts().slice(0, 3):
+		items.append(["assess:" + cid, "Fire control: damage assessment of %s" % cid])
 	items.append(["fix", "Navigator: take a position fix"])
 	items.append(["route_sector", "Navigator: lay a course to Sector KESTREL"])
 	items.append(["route_rv", "Navigator: lay a course to RV HOME"])
@@ -2550,10 +2676,18 @@ func _open_orders() -> void:
 	else:
 		items.append(["report", "Radio: transmit a contact report to Northern Command", radio_ok and not patrol.flags.has("reported")])
 	items.append(["conn", "I have the conn" if watch.active else "XO: you have the conn (standing orders)"])
+	items.append("DRONE  (%d aboard)" % drone.left)
+	if drone.airborne():
+		items.append(["drone_send", "Drone: fly to the chart selection", not chart.get("_selected").is_empty()])
+		items.append(["drone_recall", "Drone: return and recover"])
+	else:
+		var no_drone := drone.launch_blocker(sub, weather)
+		items.append(["drone_launch", "Launch the reconnaissance drone" + ("  (not now: %s)" % no_drone if no_drone != "" else ""), no_drone == ""])
 	items.append("CAPTAIN")
 	items.append(["brief", "Mission briefing  (F1)"])
 	items.append(["rest", "Go to my cabin and rest"])
-	items.append(["cards", "Call a card game in the mess", crew.alert == 0])
+	var no_cards := cards_blocker()
+	items.append(["cards", "Call a card game in the mess" + ("  (not now: %s)" % no_cards.split(" (")[0] if no_cards != "" else ""), no_cards == ""])
 	var body := "Battery %d%%  ·  hull %d%%  ·  position uncertainty about %d m  ·  sonar: %s" % [int(sub.battery), int(sub.hull), int(_dr_error), (crew.role_holder("SONAR").short if crew.role_holder("SONAR") else "unmanned")]
 	menu.open("orders", "ORDERS", body, items)
 
@@ -2574,7 +2708,22 @@ func _on_menu(id: String) -> void:
 
 
 func _order(id: String) -> void:
+	if id.begins_with("assess:"):
+		request_assessment(id.substr(7))
+		return
 	match id:
+		"drone_launch":
+			_captain_order()
+			if drone.launch(sub, weather):
+				drone.send_to(sub.global_position + sub.forward() * 2500.0, sub.global_position)
+		"drone_send":
+			var sel: Dictionary = chart.get("_selected")
+			if not sel.is_empty():
+				drone.send_to(sel["pos"], sub.global_position)
+				clog("DECISIONS", "Drone sent to %s." % Geography.latlon_text((sel["pos"] as Vector3).x, (sel["pos"] as Vector3).z), "confirmed")
+		"drone_recall":
+			drone.recall()
+			clog("DECISIONS", "Drone recalled for recovery.", "confirmed")
 		"brief":
 			open_briefing(false, true)
 		"silent":
@@ -2788,8 +2937,12 @@ func _wake(reason: String, planned: bool = false) -> void:
 
 
 func _open_cards(cup: bool = false) -> void:
-	if crew.alert > 0:
-		dialogue.say("basse", "Cards? Now? Ha. After, Captain. When nobody is chasing us.", Dialogue.P.REPORT, "", false)
+	var why := cards_blocker()
+	if why != "":
+		var b: CrewMember = crew.members["basse"]
+		if b.awake:
+			dialogue.say("basse", _basse_no_cards(why), Dialogue.P.REPORT, "", false)
+		hud.toast("NO CARDS NOW  ·  " + why.to_upper())
 		return
 	if view != View.MESS:
 		set_view(View.MESS)
@@ -2803,10 +2956,106 @@ func _open_cards(cup: bool = false) -> void:
 	var err := poker.open(players, cup)
 	if err != "":
 		crew.poker_session = false
-		hud.toast(err)
+		if players.is_empty():
+			# Say who is where, so the captain knows when a game can be had.
+			var who: Array[String] = []
+			for id in ["basse", "erik", "freja", "maya"]:
+				var cm: CrewMember = crew.members[id]
+				who.append("%s %s" % [cm.short, cm.activity if cm.awake else "asleep"])
+			err = "Nobody is free for cards: " + ", ".join(who) + ". The off-watch crew play in the day and evening."
+		hud.toast(err.to_upper())
 		return
 	_place_crew()
 	dialogue.say("basse", "Sit, sit. Liquorice is worth the same as chocolate here, I don't care what anyone says.", Dialogue.P.CONVERSATION, "", false)
+
+
+## Why a card game cannot be had now ("" if it can). Only real reasons: an
+## emergency, a weapon running, a pursuit, battle stations, silent running,
+## or a ship that is not known to be harmless close aboard. A finished
+## engagement leaves nothing behind once the boat is back to ordinary watch.
+func cards_blocker() -> String:
+	if encounter.torpedo_running():
+		return "a weapon is running"
+	if sub.flooding > 0.2 or _alarm_t > 0.0 or sub.is_blowing():
+		return "the boat has an emergency on her hands"
+	if pursuit.level >= 2:
+		return "the crew assess %s" % PursuitAssessment.SHORT[pursuit.level].to_lower()
+	if _battle:
+		return "the boat is still at battle stations (stand down in the orders, Tab)"
+	if crew.silent_running:
+		return "the boat is rigged for silent running (secure from it in the orders, Tab)"
+	var c := _threat_near(4000.0)
+	if c:
+		return "%s is close aboard, about %.1f km, and the watch stays closed up" % [c.id, c.range_est / 1000.0]
+	return ""
+
+
+## A contact held within r metres that is not known to be harmless.
+func _threat_near(r: float) -> Contact:
+	for c in sensors.tracked_vessels():
+		if c.range_est < r and not (c.affiliation in ["NEUTRAL", "FRIENDLY"]):
+			return c
+	return null
+
+
+func _basse_no_cards(why: String) -> String:
+	if why.contains("battle stations"):
+		return "Cards? We are still at battle stations, Captain. Stand us down and I'll deal."
+	if why.contains("silent running"):
+		return "Cards? Under silent running? Chips on a table, Captain. Somebody will hear."
+	if why.contains("close aboard"):
+		return "With a warship that close? After, Captain."
+	if why.contains("weapon") or why.contains("emergency"):
+		return "Not now, Captain. Not now."
+	return "Cards? Now? Ha. After, Captain. When nobody is chasing us."
+
+
+func _on_drone_event(kind: String, text: String) -> void:
+	clog("DECISIONS" if kind == "launched" else "ENGINEERING", text, "confirmed")
+	match kind:
+		"launched":
+			dialogue.say("maya", "Drone's up, Captain. It'll go where you point it on the chart.", Dialogue.P.REPORT)
+			hud.toast("DRONE UP  ·  SEND IT FROM THE CHART  ·  TAB ORDERS  ·  DIVING ABANDONS IT")
+		"returning":
+			dialogue.say("maya", "Drone's coming home on its battery.", Dialogue.P.REPORT)
+		"recovered":
+			dialogue.say("maya", "Drone recovered, Captain.", Dialogue.P.REPORT)
+		"lost":
+			dialogue.say("maya", "We've lost the drone, Captain.", Dialogue.P.REPORT)
+			hud.event("DRONE LOST  ·  " + text.to_upper())
+
+
+## After an action: once the plot has been quiet for ten minutes the XO
+## recommends standing down from battle stations; with the conn (the
+## captain resting) he stands the boat down himself.
+var _quiet_t := 0.0
+var _standdown_said := false
+const STANDDOWN_QUIET := 600.0
+
+
+func _after_action(dt: float) -> void:
+	if not _battle:
+		_quiet_t = 0.0
+		_standdown_said = false
+		return
+	var quiet := encounter.torpedo_running() == null and pursuit.level < 2 and sub.flooding <= 0.05 and _alarm_t <= 0.0 and _threat_near(8000.0) == null
+	if not quiet:
+		_quiet_t = 0.0
+		_standdown_said = false
+		return
+	_quiet_t += dt
+	if _quiet_t < STANDDOWN_QUIET or _standdown_said:
+		return
+	_standdown_said = true
+	if watch.active or asleep:
+		_battle = false
+		clog("DECISIONS", "The XO stood the boat down from battle stations: the plot had been quiet for ten minutes.", "confirmed", {"source": "XO"})
+		dialogue.say("miller", "Stand down from battle stations. Normal watch routine.", Dialogue.P.REPORT)
+		_update_alert()
+	else:
+		clog("DECISIONS", "The XO recommended standing down from battle stations: the plot has been quiet for ten minutes.", "assessment", {"source": "XO"})
+		dialogue.say("miller", "Captain, the plot's been quiet for ten minutes. Recommend we stand down from battle stations.", Dialogue.P.REPORT)
+		hud.event("XO RECOMMENDS STANDING DOWN FROM BATTLE STATIONS  ·  TAB  ORDERS")
 
 
 func _on_poker_finished(summary: String) -> void:
@@ -2895,6 +3144,8 @@ func save_blocker() -> String:
 		return "No campaign is running."
 	if scenario:
 		return "Test scenarios are not saved."
+	if drone.airborne():
+		return "Not with the drone in the air."
 	if encounter.torpedo_running():
 		return "Not while a weapon is running."
 	if sub.is_blowing():
@@ -2964,6 +3215,7 @@ func gather_state(slot: String) -> Dictionary:
 		"nav": {"route": rt, "dr_error": _dr_error, "planned_knots": chart.planned_knots, "follow": route_follow, "track": chart.track,
 			"ice": chart.reported_ice.map(func(r: Dictionary) -> Dictionary: return {"pos": SaveSystem.v3(r["pos"]), "r": r["r"], "keel": r["keel"], "t": r["t"], "id": r["id"]})},
 		"main": {"view": int(view), "battle": _battle, "playtime": _playtime, "unlimited": unlimited_weapons, "invulnerable": sub.invulnerable},
+		"drone": drone.save_state(),
 	}
 
 
@@ -3023,6 +3275,7 @@ func apply_state(d: Dictionary) -> void:
 	for r in nav.get("ice", []):
 		chart.reported_ice.append({"pos": SaveSystem.to_v3(r["pos"]), "r": float(r["r"]), "keel": float(r["keel"]), "t": float(r["t"]), "id": String(r["id"])})
 	var m: Dictionary = d.get("main", {})
+	drone.load_state(d.get("drone", {}))
 	_battle = bool(m.get("battle", false))
 	_playtime = float(m.get("playtime", 0.0))
 	unlimited_weapons = bool(m.get("unlimited", false))
@@ -3414,6 +3667,28 @@ func _begin_shot() -> void:
 			"scen":
 				# A test scenario: scen=preset_id
 				_begin_scenario({"preset": kv[1]})
+			"firetest":
+				# Watch the nearest ship for a minute and fire (development aid).
+				var best: SurfaceShip = null
+				for v0 in vessels:
+					var s0 := v0 as SurfaceShip
+					if s0.state == SurfaceShip.State.SAILING and (best == null or s0.global_position.distance_to(sub.global_position) < best.global_position.distance_to(sub.global_position)):
+						best = s0
+				if best:
+					for _i in 240:
+						encounter.fc.observe(best, sub.global_position, 0.25, FireControl.conditions(weather), null)
+					rig.bearing = encounter.fc.bearing
+					encounter.reload = 0.0
+					encounter.fire()
+			"dronetest":
+				# Surface, launch the drone and send it ahead (development aid).
+				sub.set_depth_mode(0)
+				sub.depth = 2.05
+				sub.set_speed_step(1)
+				sub.speed = 3.0 * Submarine.KNOT
+				weather.current["hs"] = minf(float(weather.current.get("hs", 1.5)), 1.5)
+				if drone.launch(sub, weather):
+					drone.send_to(sub.global_position + Vector3(2500.0, 0.0, -2500.0), sub.global_position)
 			"find":
 				# A chart search: find=QUERY (shows the results and takes the first).
 				chart.set("_follow", false)

@@ -272,6 +272,109 @@ Basse is listed under the galley. His work there is duty, not a bridge watch. Be
 
 **Nothing is saved.** Saving and autosave are refused, and campaign saves, progress and settings are untouched.
 
+## Playtest corrections: weapons, damage confirmation, poker, drone
+
+A second round of corrections from hands-on play.
+
+### Poker after an engagement
+
+**What was wrong.** After sinking two ships, cards stayed refused:
+- The boat was still at **battle stations** and rigged for **silent running**. Both are orders the captain gives, and both stay in force until the captain lifts them.
+- Nothing said so. Basse only said *"When nobody is chasing us"*, even when nobody was, and the orders menu greyed the card game out without a reason.
+- Finishing an engagement never disabled cards permanently. Once the boat stood down, cards came back.
+
+**What changed:**
+- **A reason every time.** When cards are not possible, the reason is given in Basse's answer, on screen, in the orders menu and on the mess panel:
+  - an emergency;
+  - a weapon running;
+  - a pursuit;
+  - battle stations or silent running, saying where to lift them;
+  - a warship close aboard.
+- **The XO recommends standing down** when the plot has been quiet for ten minutes. With the conn (you resting), he stands the boat down himself, and logs it.
+- **A harmless ship nearby no longer stops a game.** A neutral merchant passing within 4 km keeps the watch alert but does not cancel cards.
+- **If nobody is free,** you are told who is where. The off-watch crew play in the day and evening. In the evening the four-player table, and the Mess Cup, fill.
+- **A genuine emergency still rules cards out,** and breaks up a game already running.
+
+### Weapons on the chart
+
+**Your own torpedoes** are drawn after launch:
+- **Live by wire.** While the guidance wire holds, telemetry gives the torpedo's real position: a filled dart with a short track, labelled *WIRE*.
+- **Estimated.** Once the wire parts, the position is dead-reckoned from the last report: an open dart, a dashed track, a growing circle of doubt, labelled *EST.* It may have turned to home, so the true position can be anywhere in the circle.
+- **Ended.** When the run ends it is marked with the time and how it ended (*detonation heard*, *run complete*, *estimated end of run*), greyed and crossed out, and dropped after ten minutes.
+
+**Detonations heard** (your hits, secondary explosions) are marked where the plot places them.
+
+**Enemy torpedoes and charges** (depth charges, ASW weapons) appear **only once detected**, never because they exist. A detected weapon that is no longer heard is dead-reckoned and then marked no longer tracked.
+
+> **Note:** in this build, opposing ships and aircraft do not yet attack the boat with torpedoes, ASW rockets or depth charges, and the boat carries no countermeasures. These symbols are ready for when they do, and are in the legend.
+
+**Under time compression,** positions are worked out from time, not frame by frame, so they are right at any speed.
+
+**The legend (G)** lists every weapon symbol.
+
+### Damage assessment on request
+
+**How to ask:**
+- **Tab → Fire control: damage assessment of S…** for the ships you have engaged (most recent first);
+- the **Damage assessment** button in the contact list (**K**).
+
+**The answer is one of:**
+- **CONFIRMED SUNK**: seen to go under, or breaking-up noises *and* a report of her loss;
+- **PROBABLE SINKING**: breaking-up noises, settling or a heavy list, or a report of her loss alone;
+- **CONFIRMED DAMAGED**: fire, a list or trim seen, or secondary explosions heard;
+- **PROBABLE DAMAGE**: a detonation at the expected time, but no effect seen or heard;
+- **NO DAMAGE CONFIRMED**: no detonation, and she has been seen or heard since, apparently unharmed;
+- **STATUS UNKNOWN**: no detonation, and nothing seen or heard of her since.
+
+**It is built only from what the crew have:**
+- detonations heard;
+- what was seen through the periscope and heard on sonar since;
+- whether contact was lost;
+- reports received later.
+
+**It says what is still uncertain,** for example:
+- nobody has seen her go under;
+- no report of her loss has come in;
+- the contact is not held now.
+
+**Asking again** without new evidence gives the same answer.
+
+**Later evidence:** once you have asked, a report or an observation that changes the answer is logged as an **update**. The earlier answer stays in the Captain's Log.
+
+### Reconnaissance drone (limited)
+
+**Is it plausible?** For a small conventional submarine in a near-future setting, a small battery quadcopter carried as **trial equipment** is plausible. It is launched and recovered by hand from the bridge. This is not standard fit on most submarines, and the game treats it as an experiment with real limits. **Two are aboard.**
+
+**Launch:** Tab → *Launch the reconnaissance drone*.
+- Only with the boat **surfaced**, at **6 kt or less**, and in a moderate sea.
+- Not in a gale.
+- The menu says why when it cannot go up.
+
+**Fly:** select a point on the chart, then Tab → *Drone: fly to the chart selection*.
+- Its radio link reaches about **6 km**; it will not go further.
+- It flies about **22 minutes**, less in cold, snow, fog or wind.
+- It turns for home on its battery by itself.
+
+**Recover:** Tab → *Drone: return and recover*. Recovery also needs the boat surfaced, slow and in a moderate sea.
+
+**What it sees:**
+- ships on the surface and ice, within what its camera can make out in the light and weather (up to about 6 km);
+- it classifies ships within about 3 km;
+- it can read a ship's name only very close, about 600 m.
+
+**What it cannot do:** it never detects anything submerged.
+
+**Risks:**
+- foreign warships nearby may notice it (radar, lookouts, its radio link), and a drone over the sea means a launcher not far off;
+- it can be lost to wind, icing or a flat battery;
+- **diving with it up abandons it.**
+
+**Saving** is not possible while it is in the air.
+
+**On the chart:** a small quad cross, its leg to where it is going, and the radio-reach ring.
+
+**Deferred:** a live camera view from the drone. Its observations reach the boat as contacts, classifications, names and ice, through the chart, the contact list and the log. A video view would be a separate piece of work.
+
 ## Controls
 
 | Keys | Action |
@@ -282,7 +385,7 @@ Basse is listed under the galley. His work there is duty, not a bridge watch. Be
 | **O / P / Z / X** | Surface / periscope depth / deeper / shallower |
 | **M** | Raise or lower the masts |
 | **B** | Emergency blow (from 40 m or deeper) |
-| **Tab** | Orders to the crew (includes Mission briefing) |
+| **Tab** | Orders to the crew: also the mission briefing, damage assessments of ships engaged, and the drone |
 | **F1** | Mission briefing |
 | **K** | Contact list |
 | **I** | Naval intelligence |
@@ -332,6 +435,9 @@ Basse is listed under the galley. His work there is duty, not a bridge watch. Be
 4. **Submarine Pursuit.** Go deep, slow down, open the range. Watch the HUNTED line and the log. Try it in fog and darkness.
 5. **The campaign.** Press **J** on a quiet transit and see what stops it. Try **F** on the chart ("long", "wreck", "kestrel", a contact number) and open the legend with **G** in both colour schemes.
 6. **Load an older Mission 005 save.** The briefing should appear and make sense.
+7. **After an attack,** try to call cards. Read why not, stand down when the XO recommends it, and deal.
+8. **Ask for a damage assessment** (Tab or K) right after a hit, again after a periscope look, and again after the next broadcast.
+9. **Surface in calm weather and launch the drone** towards a contact at the edge of sight. Then dive with it still up to see what happens.
 
 ## Known limitations
 
@@ -361,6 +467,10 @@ Basse is listed under the galley. His work there is duty, not a bridge watch. Be
 - Search finds the charted names plus five harbours, stations and anchorages. The region has no larger ports.
 - At small window widths or a large interface scale, the command bar's figures can be cut short.
 
+**Opposing weapons:** opposing ships and aircraft do not yet attack the boat (no torpedoes, ASW rockets or depth charges), and the boat has no countermeasures. The chart is ready for them, but they do not occur in play.
+
+**The drone** has no camera view of its own. Its observations reach you through the chart, the contact list and the log.
+
 **The patrol objective "Remain undetected"** can be marked failed on the other side's judgement, before the crew have evidence of it. This is older behaviour, noted for a later fix.
 
 **Everything listed in `README_MISSION_005.md`** still applies:
@@ -387,6 +497,7 @@ Basse is listed under the galley. His work there is duty, not a bridge watch. Be
 | Helm | turning |
 | Command | pursuit, ×4 with a weapon running, advance-until-event stops, chart search, briefing on loaded and older saves, watchbill |
 | Scenarios | every preset, and that nothing reaches the saves or settings |
+| Combat operations | the reported poker case (two warships sunk, then ordinary operations), the XO standing down, weapon tracks (live, estimated, ended, expired, never undetected, time-step independent), damage assessment requests and their update from a later report, and the drone (launch limits, observation, recovery, loss) |
 
 **Also:**
 - a 62-hour simulated patrol: same story course and objectives as before these changes;
