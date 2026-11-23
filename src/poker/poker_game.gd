@@ -19,13 +19,16 @@ var deck: Array[int] = []
 var street := 0           # 0 preflop, 1 flop, 2 turn, 3 river
 var current := -1
 var cur_bet := 0
-var min_raise := BIG_BLIND
+var min_raise := 2
 var hand_over := true
 var hand_number := 0
 var result_text := ""
 var winners: Array[int] = []
 var showdown := false
 var rng := RandomNumberGenerator.new()
+var small_blind := SMALL_BLIND      # per table (the Bathtub club has several stakes)
+var big_blind := BIG_BLIND
+var unit := "sweets"
 
 
 ## defs: [{id, name, stack, human, temper}]
@@ -90,10 +93,10 @@ func new_hand() -> bool:
 			(players[i]["hole"] as Array).append(deck.pop_back())
 	street = 0
 	cur_bet = 0
-	min_raise = BIG_BLIND
-	_post(sb, SMALL_BLIND, "small blind")
-	_post(bb, BIG_BLIND, "big blind")
-	cur_bet = BIG_BLIND
+	min_raise = big_blind
+	_post(sb, small_blind, "small blind")
+	_post(bb, big_blind, "big blind")
+	cur_bet = big_blind
 	current = _next_actor(bb)
 	return true
 
@@ -229,7 +232,7 @@ func _advance() -> String:
 			p["bet"] = 0
 			p["acted"] = false
 		cur_bet = 0
-		min_raise = BIG_BLIND
+		min_raise = big_blind
 		street += 1
 		var deal := 3 if street == 1 else 1
 		for _k in deal:
@@ -251,7 +254,7 @@ func _award_uncontested(w: int) -> String:
 	winners = [w]
 	hand_over = true
 	current = -1
-	result_text = "%s takes the pot of %d sweets." % [players[w]["name"], total]
+	result_text = "%s takes the pot of %d %s." % [players[w]["name"], total, unit]
 	_clear_bets()
 	return "\n" + result_text
 
@@ -309,7 +312,7 @@ func _showdown() -> String:
 	for i in won:
 		players[i]["stack"] = int(players[i]["stack"]) + int(won[i])
 		winners.append(i)
-		lines.append("%s wins %d sweets." % [players[i]["name"], int(won[i])])
+		lines.append("%s wins %d %s." % [players[i]["name"], int(won[i]), unit])
 	result_text = "\n".join(lines)
 	_clear_bets()
 	return "\n" + result_text
@@ -331,7 +334,7 @@ func abandon() -> void:
 	_clear_bets()
 	hand_over = true
 	current = -1
-	result_text = "Hand abandoned. Everyone takes their sweets back."
+	result_text = "Hand abandoned. Everyone takes their %s back." % unit
 
 
 # --- AI -----------------------------------------------------------------------
@@ -363,7 +366,7 @@ func decide() -> Array:
 	if street == 0:
 		if rel > (1.7 - aggro * 0.5) and r < 0.3 + aggro * 0.6:
 			return ["raise", raise_to.call(0.8 + aggro * 0.6)]
-		var cheap := owe <= BIG_BLIND and r < 0.75 - tight * 0.5
+		var cheap := owe <= big_blind and r < 0.75 - tight * 0.5
 		if rel > 0.8 + tight * 0.45 or cheap:
 			return ["call", 0]
 		if r < bluff * 0.15:

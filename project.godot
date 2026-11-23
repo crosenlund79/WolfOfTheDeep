@@ -1,13 +1,13 @@
 ; Engine configuration file.
-; Wolf of the Deep — Development Mission 003 "A Living Submarine" (Patrol One). Pinned to Godot 4.7.x.
+; Wolf of the Deep: Bathtub Edition (experimental gameplay pivot, branch claude/bathtub-edition). Pinned to Godot 4.7.x.
 
 config_version=5
 
 [application]
 
-config/name="Wolf of the Deep"
-config/description="Wolf of the Deep: The Battle for the Arctic. Patrol One, a playable open-patrol vertical slice."
-run/main_scene="res://scenes/main.tscn"
+config/name="Wolf of the Deep Bathtub Edition"
+config/description="Wolf of the Deep: Bathtub Edition. Toy submarine battles, rival captains, candy and poker."
+run/main_scene="res://scenes/bathtub.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 boot_splash/bg_color=Color(0, 0, 0, 1)
 boot_splash/show_image=false
