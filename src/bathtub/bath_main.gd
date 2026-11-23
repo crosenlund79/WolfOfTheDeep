@@ -67,6 +67,7 @@ func _ready() -> void:
 
 
 func toast(text: String, dur: float = 3.5) -> void:
+	_toast.move_to_front()
 	_toast.text = text
 	_toast_t = dur
 
@@ -191,8 +192,8 @@ func show_harbour() -> void:
 	_panel = root
 	var p := PanelContainer.new()
 	p.add_theme_stylebox_override("panel", TubUi.panel())
-	p.position = Vector2(120, 110)
-	p.size = Vector2(760, 860)
+	p.position = Vector2(120, 130)
+	p.size = Vector2(760, 0)
 	root.add_child(p)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 12)
@@ -225,8 +226,8 @@ func show_harbour() -> void:
 	v.add_child(mm)
 	var ch := PanelContainer.new()
 	ch.add_theme_stylebox_override("panel", TubUi.panel())
-	ch.position = Vector2(940, 110)
-	ch.size = Vector2(860, 860)
+	ch.position = Vector2(940, 130)
+	ch.size = Vector2(860, 0)
 	root.add_child(ch)
 	var cv := VBoxContainer.new()
 	cv.add_theme_constant_override("separation", 6)
@@ -243,6 +244,7 @@ func show_harbour() -> void:
 
 func open_manage(tab: String) -> void:
 	manage.battle = battle if state == "battle" else null
+	manage.move_to_front()
 	manage.open(tab)
 
 
@@ -255,6 +257,7 @@ func _close_manage() -> void:
 func open_poker() -> void:
 	state = "poker"
 	_clear_panel()
+	poker.move_to_front()
 	poker.open(career)
 
 
@@ -412,6 +415,8 @@ func _give_up() -> void:
 func show_results() -> void:
 	state = "results"
 	hud.visible = false
+	manage.visible = false
+	_close_pause()
 	_report = career.settle(battle)
 	career.save()
 	_clear_panel()
